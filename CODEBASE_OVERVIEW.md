@@ -26,6 +26,7 @@ Plus two modals layered on top of either tab:
 
 ### Top bar (global, all pages)
 - Environment selector dropdown (switches active bootstrap-servers)
+- Light/dark theme toggle (sun/moon icon) — defaults to OS preference, persisted in `localStorage`
 - Settings gear icon → opens Settings modal
 
 ### Topics & Messages page

@@ -137,6 +137,10 @@ setting this up fresh in a clone.
 
 ## Using it
 
+The sun/moon icon in the top bar toggles between light and dark themes. It
+defaults to your OS's light/dark preference, and your choice is remembered
+(via `localStorage`) after that.
+
 **Topics & messages** — pick an environment, browse/filter topics on the
 left. The **+** button next to the filter box creates a new topic with an
 explicit partition count and replication factor (`kafka-topics.sh --create`)

@@ -11,6 +11,41 @@ const state = {
 
 const el = (id) => document.getElementById(id);
 
+// ---------- theme ----------
+
+const THEME_KEY = 'kvt-theme';
+
+function getStoredTheme() {
+  try {
+    return localStorage.getItem(THEME_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+function currentTheme() {
+  const stored = getStoredTheme();
+  if (stored === 'light' || stored === 'dark') return stored;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  el('icon-sun').hidden = theme !== 'dark';
+  el('icon-moon').hidden = theme !== 'light';
+  el('theme-toggle').title = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+}
+
+applyTheme(currentTheme());
+
+el('theme-toggle').addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (e) {}
+  applyTheme(next);
+});
+
 // ---------- toast ----------
 
 let toastTimer = null;
