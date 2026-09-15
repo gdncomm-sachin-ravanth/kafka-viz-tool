@@ -217,6 +217,11 @@ async function selectTopic(topic) {
     const data = await api(
       `/api/messages?env=${encodeURIComponent(state.currentEnv)}&topic=${encodeURIComponent(topic)}&limit=50`
     );
+    // A reset (env switch, topic reselect, delete) may have happened while
+    // this request was in flight - don't let a stale response re-enable
+    // controls for a topic that's no longer selected.
+    if (state.selectedTopic !== topic) return;
+
     state.messages = data.messages;
     renderMessages();
     populatePartitionFilter();
@@ -229,6 +234,8 @@ async function selectTopic(topic) {
     el('purge-topic-btn').disabled = false;
     el('delete-topic-btn').disabled = false;
   } catch (err) {
+    if (state.selectedTopic !== topic) return;
+
     el('loaded-until').textContent = '';
     el('message-stream').innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
     // details/purge/delete can still work even if message load failed
@@ -337,14 +344,75 @@ el('clear-filters').addEventListener('click', () => {
 
 // ---------- topic delete / purge ----------
 
+// Opens a modal requiring the user to type the topic name back exactly,
+// resolving true/false. The modal overlay itself already blocks interaction
+// with the rest of the page while it's open.
+function confirmByTypingTopicName(topic, title, message) {
+  return new Promise((resolve) => {
+    const modal = el('confirm-name-modal');
+    const input = el('confirm-name-input');
+    const confirmBtn = el('confirm-name-confirm');
+    const cancelBtn = el('confirm-name-cancel');
+    const closeBtn = el('confirm-name-close');
+
+    el('confirm-name-title').textContent = title;
+    el('confirm-name-message').textContent = message;
+    input.value = '';
+    confirmBtn.disabled = true;
+    modal.classList.add('open');
+    input.focus();
+
+    function cleanup(result) {
+      modal.classList.remove('open');
+      input.removeEventListener('input', onInput);
+      input.removeEventListener('keydown', onKeydown);
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      closeBtn.removeEventListener('click', onCancel);
+      modal.removeEventListener('click', onOverlayClick);
+      resolve(result);
+    }
+
+    function onInput() { confirmBtn.disabled = input.value !== topic; }
+    function onConfirm() { if (input.value === topic) cleanup(true); }
+    function onCancel() { cleanup(false); }
+    function onOverlayClick(e) { if (e.target === modal) cleanup(false); }
+    function onKeydown(e) {
+      if (e.key === 'Enter' && input.value === topic) cleanup(true);
+      if (e.key === 'Escape') cleanup(false);
+    }
+
+    input.addEventListener('input', onInput);
+    input.addEventListener('keydown', onKeydown);
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+    closeBtn.addEventListener('click', onCancel);
+    modal.addEventListener('click', onOverlayClick);
+  });
+}
+
+// Full-page, non-dismissable overlay - blocks every other control while a
+// purge/delete request is in flight.
+function showBusy(message) {
+  el('busy-message').textContent = message;
+  el('busy-overlay').classList.add('open');
+}
+function hideBusy() {
+  el('busy-overlay').classList.remove('open');
+}
+
 el('purge-topic-btn').addEventListener('click', async () => {
   const topic = state.selectedTopic;
   if (!topic) return;
-  if (!confirm(`Delete ALL messages in "${topic}"?\n\nThis purges every partition and cannot be undone.`)) return;
 
-  const btn = el('purge-topic-btn');
-  btn.disabled = true;
-  btn.textContent = 'Purging…';
+  const confirmed = await confirmByTypingTopicName(
+    topic,
+    'Purge all messages',
+    `This deletes ALL messages in every partition of "${topic}". This cannot be undone.`
+  );
+  if (!confirmed) return;
+
+  showBusy(`Purging messages in "${topic}"…`);
   try {
     const data = await api(
       `/api/topics/${encodeURIComponent(topic)}/purge?env=${encodeURIComponent(state.currentEnv)}`,
@@ -352,25 +420,26 @@ el('purge-topic-btn').addEventListener('click', async () => {
     );
     toast(`Purged ${data.partitionCount} partition(s) on ${topic}`);
     if (data.warning) toast(data.warning, true);
-    selectTopic(topic);
+    await selectTopic(topic);
   } catch (err) {
     toast(err.message, true);
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Purge messages';
+    hideBusy();
   }
 });
 
 el('delete-topic-btn').addEventListener('click', async () => {
   const topic = state.selectedTopic;
   if (!topic) return;
-  const typed = prompt(`This permanently deletes topic "${topic}" and all its data.\nType the topic name to confirm:`);
-  if (typed === null) return;
-  if (typed !== topic) return toast('Topic name did not match - cancelled', true);
 
-  const btn = el('delete-topic-btn');
-  btn.disabled = true;
-  btn.textContent = 'Deleting…';
+  const confirmed = await confirmByTypingTopicName(
+    topic,
+    'Delete topic',
+    `This permanently deletes topic "${topic}" and all its data.`
+  );
+  if (!confirmed) return;
+
+  showBusy(`Deleting topic "${topic}"…`);
   try {
     await api(
       `/api/topics/${encodeURIComponent(topic)}?env=${encodeURIComponent(state.currentEnv)}`,
@@ -382,8 +451,7 @@ el('delete-topic-btn').addEventListener('click', async () => {
   } catch (err) {
     toast(err.message, true);
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Delete topic';
+    hideBusy();
   }
 });
 

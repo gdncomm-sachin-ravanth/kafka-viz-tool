@@ -179,6 +179,35 @@
     </div>
   </div>
 
+  <!-- ===================== CONFIRM-BY-TYPING MODAL (purge / delete) ===================== -->
+  <div id="confirm-name-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="confirm-name-title">Confirm action</h3>
+        <button id="confirm-name-close" class="icon-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-name-message" class="muted"></p>
+        <label class="field-label" for="confirm-name-input">Type the topic name to confirm</label>
+        <input id="confirm-name-input" type="text" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="modal-footer">
+        <button id="confirm-name-cancel" class="btn">Cancel</button>
+        <button id="confirm-name-confirm" class="btn btn-danger" disabled>Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== BUSY OVERLAY ===================== -->
+  <div id="busy-overlay" class="modal-overlay busy-overlay">
+    <div class="busy-box">
+      <span class="spinner"></span>
+      <span id="busy-message">Working…</span>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
   <script src="app.js"></script>
