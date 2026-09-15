@@ -176,6 +176,43 @@ app.get('/api/topics', async (req, res) => {
   res.json({ topics });
 });
 
+app.post('/api/topics', async (req, res) => {
+  const cfg = loadConfig();
+  if (!checkKafkaHome(cfg, res)) return;
+
+  const { env: envName, topic, partitions, replicationFactor } = req.body;
+  const env = getEnv(cfg, envName);
+  if (!env) return res.status(400).json({ error: `Unknown environment: ${envName}` });
+  if (!topic) return res.status(400).json({ error: 'topic is required' });
+
+  const partitionCount = Number(partitions) || 1;
+  const replication = Number(replicationFactor) || 1;
+  if (!Number.isInteger(partitionCount) || partitionCount < 1) {
+    return res.status(400).json({ error: 'partitions must be a positive integer' });
+  }
+  if (!Number.isInteger(replication) || replication < 1) {
+    return res.status(400).json({ error: 'replicationFactor must be a positive integer' });
+  }
+
+  const { code, stderr } = await runCommand(
+    kafkaBin(cfg, 'kafka-topics.sh'),
+    [
+      '--bootstrap-server', env.bootstrapServers,
+      '--create',
+      '--topic', topic,
+      '--partitions', String(partitionCount),
+      '--replication-factor', String(replication)
+    ],
+    { timeoutMs: 20000 }
+  );
+
+  if (code !== 0) {
+    return res.status(500).json({ error: stderr || 'Failed to create topic' });
+  }
+
+  res.json({ ok: true, topic, partitions: partitionCount, replicationFactor: replication });
+});
+
 app.delete('/api/topics/:topic', async (req, res) => {
   const cfg = loadConfig();
   if (!checkKafkaHome(cfg, res)) return;

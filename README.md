@@ -138,7 +138,13 @@ setting this up fresh in a clone.
 ## Using it
 
 **Topics & messages** — pick an environment, browse/filter topics on the
-left, click one to load its most recent messages (last 50, newest first,
+left. The **+** button next to the filter box creates a new topic with an
+explicit partition count and replication factor (`kafka-topics.sh --create`)
+— this is the only way to control partition count; publishing to a topic
+that doesn't exist yet only implicitly creates it (subject to the broker's
+`auto.create.topics.enable` setting) with the broker's default partition
+count, which this tool has no way to override. Click a topic to load its
+most recent messages (last 50, newest first,
 merged across all partitions). The header shows how far back the loaded
 batch reaches (oldest message's timestamp) so you know the window you're
 looking at. Above the message list, filter the *loaded* batch by free-text
