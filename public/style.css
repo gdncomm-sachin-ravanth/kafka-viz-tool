@@ -625,6 +625,27 @@ main {
   margin: 20px 0;
 }
 
+.modal-body p.muted { margin: 0 0 14px 0; }
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.busy-overlay .busy-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 26px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
 .inline-row { display: flex; gap: 8px; }
 .inline-row input { flex: 1; }
 

@@ -145,12 +145,15 @@ looking at. Above the message list, filter the *loaded* batch by free-text
 search (key/value), partition, key substring, and/or a from/to date range —
 none of this requeries Kafka, so it's instant.
 
-Two destructive actions live next to Reload/View details:
+Two destructive actions live next to Reload/View details. Both require
+typing the topic name into a confirmation popup before anything happens, and
+while the request is in flight a blocking overlay disables every other
+control (topic list, filters, tabs, other buttons) so nothing else can be
+touched mid-operation:
 - **Purge messages** deletes every record in every partition of the topic
   (via `kafka-delete-records.sh`, deleting up to each partition's current
   latest offset) — the topic and its partitions stay, only the data is gone.
-- **Delete topic** removes the topic entirely (`kafka-topics.sh --delete`)
-  and requires typing the topic name to confirm.
+- **Delete topic** removes the topic entirely (`kafka-topics.sh --delete`).
 
 Kafka has no way to delete a single partition while keeping the topic (the
 partition count can only increase), so there's no per-partition delete —
