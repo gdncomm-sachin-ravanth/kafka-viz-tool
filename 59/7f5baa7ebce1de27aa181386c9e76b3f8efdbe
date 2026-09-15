@@ -1,0 +1,39 @@
+public/index.html
+  s_d11bd9ae17c6d5::t_a8d5e2f18caf67 1-186
+.gitignore
+  s_d11bd9ae17c6d5::t_9e36ce91f9137d 1-4
+CODEBASE_OVERVIEW.md
+  s_d11bd9ae17c6d5::t_84951049de37f7 1-87
+README.md
+  s_d11bd9ae17c6d5::t_a92019afc994f6 1-202
+config.example.json
+  s_d11bd9ae17c6d5::t_8c991299829f42 1-9
+package-lock.json
+  s_d11bd9ae17c6d5::t_f40b159384334a 1-844
+package.json
+  s_d11bd9ae17c6d5::t_97878ad64295be 1-13
+public/app.js
+  s_d11bd9ae17c6d5::t_339b2f2d340ec1 1-591
+public/style.css
+  s_d11bd9ae17c6d5::t_e44af302afeb8d 1-705
+scripts/setup-kafka.sh
+  s_d11bd9ae17c6d5::t_450c1b463f54da 1-148
+server.js
+  s_d11bd9ae17c6d5::t_221a8e8d43b36a 1-683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "597f5baa7ebce1de27aa181386c9e76b3f8efdbe",
+  "prompts": {},
+  "sessions": {
+    "s_d11bd9ae17c6d5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e54b4c44-8120-4443-b137-2788bf29122c",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "gdncomm-sachin-ravanth <sachin.ravanth@gdn-commerce.com>"
+    }
+  }
+}
