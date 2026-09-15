@@ -11,6 +11,41 @@ const state = {
 
 const el = (id) => document.getElementById(id);
 
+// ---------- theme ----------
+
+const THEME_KEY = 'kvt-theme';
+
+function getStoredTheme() {
+  try {
+    return localStorage.getItem(THEME_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+function currentTheme() {
+  const stored = getStoredTheme();
+  if (stored === 'light' || stored === 'dark') return stored;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  el('icon-sun').hidden = theme !== 'dark';
+  el('icon-moon').hidden = theme !== 'light';
+  el('theme-toggle').title = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+}
+
+applyTheme(currentTheme());
+
+el('theme-toggle').addEventListener('click', () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (e) {}
+  applyTheme(next);
+});
+
 // ---------- toast ----------
 
 let toastTimer = null;
@@ -167,6 +202,60 @@ function renderTopicList() {
 el('topic-filter').addEventListener('input', renderTopicList);
 el('refresh-topics').addEventListener('click', loadTopics);
 el('refresh-messages').addEventListener('click', () => selectTopic(state.selectedTopic));
+
+// ---------- new topic ----------
+
+function openNewTopicModal() {
+  el('new-topic-name').value = '';
+  el('new-topic-partitions').value = '1';
+  el('new-topic-replication').value = '1';
+  el('new-topic-error').textContent = '';
+  el('new-topic-modal').classList.add('open');
+  el('new-topic-name').focus();
+}
+
+function closeNewTopicModal() {
+  el('new-topic-modal').classList.remove('open');
+}
+
+el('new-topic-btn').addEventListener('click', openNewTopicModal);
+el('close-new-topic').addEventListener('click', closeNewTopicModal);
+el('cancel-new-topic').addEventListener('click', closeNewTopicModal);
+el('new-topic-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'new-topic-modal') closeNewTopicModal();
+});
+
+el('create-new-topic').addEventListener('click', async () => {
+  const topic = el('new-topic-name').value.trim();
+  const partitions = el('new-topic-partitions').value;
+  const replicationFactor = el('new-topic-replication').value;
+  const errorEl = el('new-topic-error');
+  errorEl.textContent = '';
+
+  errorEl.style.color = 'var(--danger)';
+  if (!topic) return errorEl.textContent = 'Topic name is required';
+  if (!state.currentEnv) return errorEl.textContent = 'Select an environment first';
+
+  const btn = el('create-new-topic');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+  try {
+    await api('/api/topics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ env: state.currentEnv, topic, partitions, replicationFactor })
+    });
+    toast(`Created topic ${topic} (${partitions} partition(s))`);
+    closeNewTopicModal();
+    await loadTopics();
+    selectTopic(topic);
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create';
+  }
+});
 
 const FILTER_IDS = ['message-search', 'filter-partition', 'filter-key', 'filter-date-from', 'filter-date-to', 'clear-filters'];
 

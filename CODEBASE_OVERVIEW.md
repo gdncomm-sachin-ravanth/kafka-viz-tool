@@ -26,10 +26,11 @@ Plus two modals layered on top of either tab:
 
 ### Top bar (global, all pages)
 - Environment selector dropdown (switches active bootstrap-servers)
+- Light/dark theme toggle (sun/moon icon) — defaults to OS preference, persisted in `localStorage`
 - Settings gear icon → opens Settings modal
 
 ### Topics & Messages page
-- **Topic list (left pane)**: lists all topics for the selected environment, client-side filter box, manual refresh button
+- **Topic list (left pane)**: lists all topics for the selected environment, client-side filter box, manual refresh button, and a "+" button to create a new topic (name, partitions, replication factor via `kafka-topics.sh --create`) — the new topic is auto-selected once created
 - **Message stream (center)**: on selecting a topic, loads its most recent messages (default limit 50, capped at 500) merged and sorted newest-first across *all* partitions
   - Header shows "loaded until" timestamp — the oldest message's timestamp in the loaded batch, so the user knows the time window covered
   - Client-side search box filters the already-loaded messages by key/value text (no re-query)
@@ -65,6 +66,7 @@ Populated by `GET /api/topics/:topic/details`, shows:
 | POST | `/api/environments` | Add or update an environment |
 | DELETE | `/api/environments/:name` | Remove an environment |
 | GET | `/api/topics?env=` | List topics (`kafka-topics.sh --list`) |
+| POST | `/api/topics` | Create a topic with explicit partitions/replication factor (`kafka-topics.sh --create`) |
 | DELETE | `/api/topics/:topic?env=` | Delete a topic entirely |
 | POST | `/api/topics/:topic/purge?env=` | Delete all records in every partition (`kafka-delete-records.sh`) |
 | GET | `/api/topics/:topic/partitions?env=` | List a topic's partitions (used by Publish's partition picker) |
