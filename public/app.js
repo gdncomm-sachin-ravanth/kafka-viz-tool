@@ -217,6 +217,11 @@ async function selectTopic(topic) {
     const data = await api(
       `/api/messages?env=${encodeURIComponent(state.currentEnv)}&topic=${encodeURIComponent(topic)}&limit=50`
     );
+    // A reset (env switch, topic reselect, delete) may have happened while
+    // this request was in flight - don't let a stale response re-enable
+    // controls for a topic that's no longer selected.
+    if (state.selectedTopic !== topic) return;
+
     state.messages = data.messages;
     renderMessages();
     populatePartitionFilter();
@@ -229,6 +234,8 @@ async function selectTopic(topic) {
     el('purge-topic-btn').disabled = false;
     el('delete-topic-btn').disabled = false;
   } catch (err) {
+    if (state.selectedTopic !== topic) return;
+
     el('loaded-until').textContent = '';
     el('message-stream').innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
     // details/purge/delete can still work even if message load failed
