@@ -1,0 +1,20 @@
+public/app.js
+  s_7ed27761403ca9::t_abe04ead2d2895 220-224
+  s_7ed27761403ca9::t_a7b623e2d3305b 237-238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "ad559f6f52b75a48c606bab1843897e50732fccc",
+  "prompts": {},
+  "sessions": {
+    "s_7ed27761403ca9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99c1fef9-ac2a-4553-83d0-079656a25944",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "gdncomm-sachin-ravanth <sachin.ravanth@gdn-commerce.com>"
+    }
+  }
+}
