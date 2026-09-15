@@ -1,0 +1,13 @@
+{
+  "name": "kafka-viz-tool",
+  "version": "1.0.0",
+  "description": "Local Kafka visualisation tool - topics/messages viewer and publisher, backed by real Kafka CLI scripts",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "setup-kafka": "bash scripts/setup-kafka.sh"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
