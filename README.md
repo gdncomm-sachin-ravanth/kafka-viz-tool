@@ -155,6 +155,10 @@ looking at. Above the message list, filter the *loaded* batch by free-text
 search (key/value), partition, key substring, and/or a from/to date range —
 none of this requeries Kafka, so it's instant.
 
+**Publish message** next to Reload/View details jumps to the Publish page
+with the selected topic pre-filled and its partition dropdown populated, so
+you don't have to retype the topic name to send it a message.
+
 Two destructive actions live next to Reload/View details. Both require
 typing the topic name into a confirmation popup before anything happens, and
 while the request is in flight a blocking overlay disables every other

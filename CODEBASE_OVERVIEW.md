@@ -36,6 +36,7 @@ Plus two modals layered on top of either tab:
   - Client-side search box filters the already-loaded messages by key/value text (no re-query)
   - Reload button re-fetches the batch
   - "View details" button opens the Topic Details modal
+  - "Publish message" button switches to the Publish page with the selected topic pre-filled and its partition dropdown populated
   - Filters (all client-side over the loaded batch): partition dropdown, key substring, date range, plus the free-text search
   - "Purge messages" deletes all records in every partition (topic/partitions remain); "Delete topic" removes the topic entirely. Both require typing the topic name into a confirmation modal, and both show a blocking full-page overlay (disabling every other control) while the request is in flight
 - **Message detail pane (right)**: clicking a message in the stream shows its full payload, pretty-printed if it parses as JSON

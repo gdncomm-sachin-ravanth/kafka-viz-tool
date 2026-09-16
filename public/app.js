@@ -116,13 +116,14 @@ async function api(path, options) {
 
 // ---------- tabs ----------
 
+function switchToPage(pageName) {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === pageName));
+  document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+  el(`page-${pageName}`).classList.add('active');
+}
+
 document.querySelectorAll('.tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-    document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
-    tab.classList.add('active');
-    el(`page-${tab.dataset.page}`).classList.add('active');
-  });
+  tab.addEventListener('click', () => switchToPage(tab.dataset.page));
 });
 
 // ---------- config / environments ----------
@@ -333,6 +334,7 @@ function resetMessagePane() {
   setFiltersEnabled(false);
   el('refresh-messages').disabled = true;
   el('view-details-btn').disabled = true;
+  el('publish-to-topic-btn').disabled = true;
   el('purge-topic-btn').disabled = true;
   el('delete-topic-btn').disabled = true;
 }
@@ -349,6 +351,7 @@ async function selectTopic(topic) {
   setFiltersEnabled(false);
   el('refresh-messages').disabled = true;
   el('view-details-btn').disabled = true;
+  el('publish-to-topic-btn').disabled = true;
   el('purge-topic-btn').disabled = true;
   el('delete-topic-btn').disabled = true;
 
@@ -370,6 +373,7 @@ async function selectTopic(topic) {
     setFiltersEnabled(true);
     el('refresh-messages').disabled = false;
     el('view-details-btn').disabled = false;
+    el('publish-to-topic-btn').disabled = false;
     el('purge-topic-btn').disabled = false;
     el('delete-topic-btn').disabled = false;
   } catch (err) {
@@ -377,8 +381,9 @@ async function selectTopic(topic) {
 
     el('loaded-until').textContent = '';
     el('message-stream').innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
-    // details/purge/delete can still work even if message load failed
+    // details/publish/purge/delete can still work even if message load failed
     el('view-details-btn').disabled = false;
+    el('publish-to-topic-btn').disabled = false;
     el('purge-topic-btn').disabled = false;
     el('delete-topic-btn').disabled = false;
     toast(err.message, true);
@@ -540,6 +545,15 @@ function hideBusy() {
   el('busy-overlay').classList.remove('open');
 }
 
+el('publish-to-topic-btn').addEventListener('click', async () => {
+  const topic = state.selectedTopic;
+  if (!topic) return;
+
+  switchToPage('publish');
+  el('publish-topic').value = topic;
+  await refreshPublishPartitions();
+});
+
 el('purge-topic-btn').addEventListener('click', async () => {
   const topic = state.selectedTopic;
   if (!topic) return;
@@ -586,6 +600,7 @@ el('delete-topic-btn').addEventListener('click', async () => {
     );
     toast(`Deleted topic ${topic}`);
     resetMessagePane();
+    if (el('topic-filter').value) el('topic-filter').value = '';
     loadTopics();
   } catch (err) {
     toast(err.message, true);
