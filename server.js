@@ -22,7 +22,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
-const DEFAULT_KAFKA_HOME = path.join(os.homedir(), 'Work', 'kafka_2.13-3.2.1');
+const DEFAULT_KAFKA_HOME = path.join(os.homedir(), 'kafka_2.13-3.2.1');
 
 // ---------- config persistence ----------
 

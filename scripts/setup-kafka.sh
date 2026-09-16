@@ -10,20 +10,20 @@
 # Options:
 #   -v, --version VERSION   Kafka version to install (default: 3.2.1)
 #   -s, --scala VERSION     Scala build to use (default: 2.13)
-#   -d, --dir DIR           Install parent directory (default: ~/Work)
+#   -d, --dir DIR           Install parent directory (default: your home directory)
 #   --start                 Start ZooKeeper + broker after installing
 #   --force                 Re-download/overwrite an existing install
 #   --no-update-config      Don't write kafkaHome into ../config.json
 #   -h, --help              Show this help
 #
 # Example:
-#   scripts/setup-kafka.sh --version 3.2.1 --dir ~/Work --start
+#   scripts/setup-kafka.sh --version 3.2.1 --dir ~/tools --start
 
 set -euo pipefail
 
 KAFKA_VERSION="3.2.1"
 SCALA_VERSION="2.13"
-INSTALL_PARENT="$HOME/Work"
+INSTALL_PARENT="$HOME"
 START_AFTER_INSTALL=false
 FORCE=false
 UPDATE_CONFIG=true
