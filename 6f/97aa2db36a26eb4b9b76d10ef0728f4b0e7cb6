@@ -1,0 +1,22 @@
+README.md
+  s_7ed27761403ca9::t_79c6a5c1a327ee 3-33,35,37-38,40,42-43,46-47,50-51,53-57,59-60,62,64,66-67,69,71,73-77,79-84,86-89,91,94,97,99,103-104,106-107,110,112-113,121,124,132,134-137,139-143,146-249
+CODEBASE_OVERVIEW.md
+  s_7ed27761403ca9::t_8e270504a483c9 45-47,49-50
+  s_7ed27761403ca9::t_6cd5d88fabb2d2 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "6f97aa2db36a26eb4b9b76d10ef0728f4b0e7cb6",
+  "prompts": {},
+  "sessions": {
+    "s_7ed27761403ca9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99c1fef9-ac2a-4553-83d0-079656a25944",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "gdncomm-sachin-ravanth <sachin.ravanth@gdn-commerce.com>"
+    }
+  }
+}
