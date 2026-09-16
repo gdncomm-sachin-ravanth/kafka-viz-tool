@@ -1,0 +1,30 @@
+scripts/setup-kafka.sh
+  s_7ed27761403ca9::t_43c7be7465cab3 26
+  s_7ed27761403ca9::t_1d037337b2e297 13
+  s_7ed27761403ca9::t_6ea6ee0d824bf2 20
+config.example.json
+  s_7ed27761403ca9::t_182bb8204d82b8 2
+README.md
+  s_7ed27761403ca9::t_c049df4546b8b4 35,39
+  s_7ed27761403ca9::t_b69be80a273221 123
+  s_7ed27761403ca9::t_c9694e57fc8fbf 58-59,62,65
+  s_7ed27761403ca9::t_a111af549572bc 11-12
+server.js
+  s_7ed27761403ca9::t_ebac0184b522ec 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "1d140a65086cc7cca241e0cd70ccaf4e82e7a620",
+  "prompts": {},
+  "sessions": {
+    "s_7ed27761403ca9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99c1fef9-ac2a-4553-83d0-079656a25944",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "gdncomm-sachin-ravanth <sachin.ravanth@gdn-commerce.com>"
+    }
+  }
+}
