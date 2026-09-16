@@ -8,8 +8,8 @@ no separate broker config to maintain.
 
 - Node.js 18+ (on the machine where you'll run this — your laptop, not a
   remote server, unless that server also has network access to your brokers)
-- A local Kafka distribution, e.g. `~/Work/kafka_2.13-3.2.1`, with these
-  present under `bin/`:
+- A local Kafka distribution (any directory works, e.g. `~/kafka_2.13-3.2.1`),
+  with these present under `bin/`:
   - `kafka-topics.sh` (list/describe/delete topics)
   - `kafka-console-consumer.sh` (read messages)
   - `kafka-console-producer.sh` (publish messages)
@@ -32,11 +32,11 @@ no separate broker config to maintain.
 this tool's `config.json` at it:
 
 ```bash
-npm run setup-kafka                    # installs 3.2.1 (Scala 2.13) into ~/Work
+npm run setup-kafka                    # installs 3.2.1 (Scala 2.13) into your home directory
 npm run setup-kafka -- --start         # ...and also starts ZooKeeper + the broker
 ```
 
-Options: `--version`, `--scala`, `--dir` (defaults 3.2.1 / 2.13 / `~/Work`),
+Options: `--version`, `--scala`, `--dir` (defaults 3.2.1 / 2.13 / your home directory),
 `--force` (re-download even if already installed), `--no-update-config`
 (don't touch `config.json`), `--help`. Run it again with `--start` any time
 to (re)start the pair; each run reuses an existing install unless you pass
@@ -55,14 +55,14 @@ If you just want a broker on `localhost:9092` to point this tool at:
    section, any Scala build (2.13 is fine) — e.g. `kafka_2.13-3.2.1.tgz`. The
    "Source download" isn't what you want unless you plan to build it yourself.
 
-3. **Extract** it somewhere stable, e.g.:
+3. **Extract** it somewhere stable — anywhere works, e.g. straight into your
+   home directory:
 
    ```bash
-   mkdir -p ~/Work
-   tar -xzf ~/Downloads/kafka_2.13-3.2.1.tgz -C ~/Work
+   tar -xzf ~/Downloads/kafka_2.13-3.2.1.tgz -C ~
    ```
 
-   This gives you `~/Work/kafka_2.13-3.2.1`, with the CLI scripts under its
+   This gives you `~/kafka_2.13-3.2.1`, with the CLI scripts under its
    `bin/` — that whole directory is what `kafkaHome` in this tool's Settings
    should point to.
 
@@ -120,7 +120,7 @@ npm start
 Then open **http://localhost:4545**.
 
 On first run it creates `config.json` next to `server.js` with:
-- `kafkaHome` defaulting to `~/Work/kafka_2.13-3.2.1`
+- `kafkaHome` defaulting to `~/kafka_2.13-3.2.1`
 - one environment: `Local` → `localhost:9092`
 
 Open the gear icon (top right) to:
@@ -154,6 +154,10 @@ batch reaches (oldest message's timestamp) so you know the window you're
 looking at. Above the message list, filter the *loaded* batch by free-text
 search (key/value), partition, key substring, and/or a from/to date range —
 none of this requeries Kafka, so it's instant.
+
+**Publish message** next to Reload/View details jumps to the Publish page
+with the selected topic pre-filled and its partition dropdown populated, so
+you don't have to retype the topic name to send it a message.
 
 Two destructive actions live next to Reload/View details. Both require
 typing the topic name into a confirmation popup before anything happens, and
