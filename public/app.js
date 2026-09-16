@@ -46,6 +46,56 @@ el('theme-toggle').addEventListener('click', () => {
   applyTheme(next);
 });
 
+// ---------- topic pane resize ----------
+
+const TOPIC_PANE_WIDTH_KEY = 'kvt-topic-pane-width';
+const TOPIC_PANE_MIN_WIDTH = 260;
+const TOPIC_PANE_MAX_WIDTH = 640;
+
+(function initTopicPaneWidth() {
+  let stored;
+  try {
+    stored = Number(localStorage.getItem(TOPIC_PANE_WIDTH_KEY));
+  } catch (e) {}
+  if (stored && stored >= TOPIC_PANE_MIN_WIDTH && stored <= TOPIC_PANE_MAX_WIDTH) {
+    el('topic-pane').style.width = `${stored}px`;
+  }
+})();
+
+(function setupTopicPaneResizer() {
+  const resizer = el('topic-pane-resizer');
+  const pane = el('topic-pane');
+
+  resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    resizer.classList.add('dragging');
+    document.body.classList.add('resizing-pane');
+    const startX = e.clientX;
+    const startWidth = pane.getBoundingClientRect().width;
+
+    function onMouseMove(ev) {
+      const width = Math.min(
+        TOPIC_PANE_MAX_WIDTH,
+        Math.max(TOPIC_PANE_MIN_WIDTH, startWidth + (ev.clientX - startX))
+      );
+      pane.style.width = `${width}px`;
+    }
+
+    function onMouseUp() {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      resizer.classList.remove('dragging');
+      document.body.classList.remove('resizing-pane');
+      try {
+        localStorage.setItem(TOPIC_PANE_WIDTH_KEY, String(Math.round(pane.getBoundingClientRect().width)));
+      } catch (e) {}
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+})();
+
 // ---------- toast ----------
 
 let toastTimer = null;

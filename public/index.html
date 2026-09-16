@@ -59,7 +59,7 @@
   <main>
     <!-- ===================== TOPICS & MESSAGES PAGE ===================== -->
     <section id="page-topics" class="page active">
-      <aside class="topic-pane">
+      <aside id="topic-pane" class="topic-pane">
         <div class="pane-header">
           <input id="topic-filter" type="text" placeholder="Filter topics…" />
           <button id="refresh-topics" class="icon-btn" title="Refresh topics">
@@ -71,6 +71,8 @@
         </div>
         <ul id="topic-list" class="topic-list"></ul>
       </aside>
+
+      <div id="topic-pane-resizer" class="pane-resizer" title="Drag to resize"></div>
 
       <section class="center-column">
         <!-- ===== topic details bar ===== -->
