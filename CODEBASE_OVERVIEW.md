@@ -30,7 +30,7 @@ Plus two modals layered on top of either tab:
 - Settings gear icon → opens Settings modal
 
 ### Topics & Messages page
-- **Topic list (left pane)**: lists all topics for the selected environment, client-side filter box, manual refresh button, and a "+" button to create a new topic (name, partitions, replication factor via `kafka-topics.sh --create`) — the new topic is auto-selected once created
+- **Topic list (left pane)**: lists all topics for the selected environment, client-side filter box, manual refresh button, and a "+" button to create a new topic (name, partitions, replication factor via `kafka-topics.sh --create`) — the new topic is auto-selected once created. The pane is resizable via a drag divider on its right edge (width persisted in `localStorage`). Deleting a topic clears the filter box and refreshes the list.
 - **Message stream (center)**: on selecting a topic, loads its most recent messages (default limit 50, capped at 500) merged and sorted newest-first across *all* partitions
   - Header shows "loaded until" timestamp — the oldest message's timestamp in the loaded batch, so the user knows the time window covered
   - Client-side search box filters the already-loaded messages by key/value text (no re-query)
@@ -42,10 +42,12 @@ Plus two modals layered on top of either tab:
 - **Message detail pane (right)**: clicking a message in the stream shows its full payload, pretty-printed if it parses as JSON
 
 ### Publish page
-- Topic name input
+- Topic name input — can be typed directly, or auto-filled by the "Publish message" button from the Topics page
+- Key (optional) — sent as-is via the console producer's key properties
+- Partition (optional) — a dropdown populated from the topic's real partitions once you tab out of the Topic field (or auto-populated when arriving via "Publish message"); falls back to a manual number input for a topic that doesn't exist yet or can't be described. Since `kafka-console-producer.sh` has no direct partition flag, an explicit partition with no key is achieved by generating a synthetic key whose murmur2 hash routes to that partition under Kafka's default partitioner
 - JSON message textarea with live JSON validation status
-- Publish button — sends via `kafka-console-producer.sh`, single record, no explicit key, default partitioning
-- Result/error feedback area
+- Publish button — sends via `kafka-console-producer.sh`
+- Result/error feedback area, including the actual key used when one was synthesized for partition targeting
 
 ### Settings modal
 - Edit `kafkaHome` path (persisted to `config.json`)

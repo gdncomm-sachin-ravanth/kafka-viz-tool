@@ -1,104 +1,116 @@
 # kafka-viz
 
-A small local UI for the Kafka CLI you already have installed. It shells out
-to the real scripts in `KAFKA_HOME/bin` — no separate Kafka client library,
-no separate broker config to maintain.
+A simple website that runs on your own computer and lets you look at and
+manage Kafka topics without typing long terminal commands.
 
-## Requirements
+**What is Kafka, in one sentence?** It's a system that apps use to send
+messages to each other in "topics" (think of a topic as a named mailbox).
+This tool lets you see what's in those mailboxes, send test messages, and
+clean them up — all by clicking buttons instead of running CLI commands.
 
-- Node.js 18+ (on the machine where you'll run this — your laptop, not a
-  remote server, unless that server also has network access to your brokers)
-- A local Kafka distribution (any directory works, e.g. `~/kafka_2.13-3.2.1`),
-  with these present under `bin/`:
-  - `kafka-topics.sh` (list/describe/delete topics)
-  - `kafka-console-consumer.sh` (read messages)
-  - `kafka-console-producer.sh` (publish messages)
-  - `kafka-run-class.sh` (used to fetch partition offsets via `GetOffsetShell`)
-  - `kafka-configs.sh` (topic-level config overrides, shown in topic details)
-  - `kafka-consumer-groups.sh` (consumer group lag, shown in topic details)
-  - `kafka-delete-records.sh` (used by "Purge messages")
+**How does it work under the hood?** It doesn't reinvent anything — every
+button in this UI just runs one of the official Kafka command-line scripts
+for you (the same ones under `bin/` in a Kafka install) and shows you the
+result nicely formatted. Nothing new to install on your Kafka side, no
+separate database, no extra moving parts.
 
-  If you don't have one yet, see [Setting up a local Kafka
-  distribution](#setting-up-a-local-kafka-distribution) below.
-- Network access from this machine to whichever bootstrap servers you add
-  (localhost for a local broker, or your QA/prod hosts over VPN, etc.)
+## What you need before you start
 
-## Setting up a local Kafka distribution
+1. **Node.js version 18 or newer**, installed on the same computer you'll
+   open the tool from — usually your own laptop, not some faraway server
+   (unless that server can also reach your Kafka brokers over the network).
+   Check what you have with:
+   ```bash
+   node -v
+   ```
+2. **A Kafka installation on your computer** — just a folder containing
+   Kafka's `bin/` scripts. If you already have one, skip to
+   [Install and run kafka-viz](#install-and-run-kafka-viz). If not, see
+   [Getting Kafka onto your computer](#getting-kafka-onto-your-computer) below.
+3. **Network access** from your computer to whichever Kafka server you want
+   to connect to. For a Kafka you install locally that's just `localhost`,
+   which always works. For a shared QA/test/prod Kafka, make sure you're on
+   the right VPN or network first.
 
-### Option A: the setup script
+## Getting Kafka onto your computer
 
-[`scripts/setup-kafka.sh`](scripts/setup-kafka.sh) downloads a release from
-`archive.apache.org`, verifies its SHA512 checksum, extracts it, and points
-this tool's `config.json` at it:
+You have two ways to do this. If you're not sure which to pick, use Option A
+— it's one command and does everything for you.
+
+### Option A — the easy way (one script does it all)
+
+This repo includes a script that downloads Kafka, checks it's not corrupted,
+unpacks it, and points this tool at it automatically.
 
 ```bash
-npm run setup-kafka                    # installs 3.2.1 (Scala 2.13) into your home directory
-npm run setup-kafka -- --start         # ...and also starts ZooKeeper + the broker
+npm run setup-kafka                    # downloads and unpacks Kafka into your home folder
+npm run setup-kafka -- --start         # ...and also starts it running, ready to use
 ```
 
-Options: `--version`, `--scala`, `--dir` (defaults 3.2.1 / 2.13 / your home directory),
-`--force` (re-download even if already installed), `--no-update-config`
-(don't touch `config.json`), `--help`. Run it again with `--start` any time
-to (re)start the pair; each run reuses an existing install unless you pass
-`--force`.
+That's it — if you used `--start`, Kafka is now running on your computer and
+you can jump to [Install and run kafka-viz](#install-and-run-kafka-viz).
 
-### Option B: by hand
+A few extra options if you need them (you usually won't):
+- `--dir <folder>` — install somewhere other than your home folder
+- `--force` — redo the download even if it's already installed
+- `--no-update-config` — don't let the script touch this tool's settings file
+- `--help` — show all options
 
-If you just want a broker on `localhost:9092` to point this tool at:
+Run the script again any time with `--start` to start Kafka back up; it
+won't re-download anything unless you pass `--force`.
 
-1. **Java** — Kafka needs a JRE (11+ recommended). Check with `java -version`;
-   install a JDK (e.g. via `brew install openjdk@17` on macOS) if missing.
+### Option B — doing it by hand
 
-2. **Download** — grab a binary release from
-   [kafka.apache.org/downloads](https://kafka.apache.org/downloads) (the link
-   under "Community" on kafka.apache.org). Pick the **Binary downloads**
-   section, any Scala build (2.13 is fine) — e.g. `kafka_2.13-3.2.1.tgz`. The
-   "Source download" isn't what you want unless you plan to build it yourself.
+Use this if you'd rather understand and control each step yourself.
 
-3. **Extract** it somewhere stable — anywhere works, e.g. straight into your
-   home directory:
+1. **Make sure Java is installed** — Kafka is a Java program, so it needs a
+   Java runtime (version 11 or newer) to run. Check with:
+   ```bash
+   java -version
+   ```
+   If that fails, install one — on a Mac, `brew install openjdk@17` works well.
 
+2. **Download Kafka** — go to
+   [kafka.apache.org/downloads](https://kafka.apache.org/downloads), find the
+   **Binary downloads** section (not "Source download" — that's for people
+   building Kafka themselves), and download any version, e.g.
+   `kafka_2.13-3.2.1.tgz`.
+
+3. **Unpack it** somewhere permanent, like straight into your home folder:
    ```bash
    tar -xzf ~/Downloads/kafka_2.13-3.2.1.tgz -C ~
    ```
+   This creates a folder like `~/kafka_2.13-3.2.1`. Remember this path — it's
+   what you'll tell kafka-viz about in a later step.
 
-   This gives you `~/kafka_2.13-3.2.1`, with the CLI scripts under its
-   `bin/` — that whole directory is what `kafkaHome` in this tool's Settings
-   should point to.
-
-4. **Start ZooKeeper**, then the broker, each in its own terminal, from
-   inside the extracted directory (older releases like 3.2.1 need ZooKeeper;
-   see the KRaft note below for newer ones):
-
+4. **Start Kafka.** Older versions (like 3.2.1) need a helper program called
+   ZooKeeper running first; newer versions don't (see the note below if
+   you're using one of those). Open two terminal windows and leave both
+   running:
    ```bash
-   # terminal 1 — leave running
+   # Window 1 — start this first, then leave it running
    bin/zookeeper-server-start.sh config/zookeeper.properties
 
-   # terminal 2 — leave running, after ZooKeeper has started
+   # Window 2 — start this once Window 1 says it's ready
    bin/kafka-server-start.sh config/server.properties
    ```
+   Run these from inside the folder you unpacked in step 3.
 
-   The broker's default config already listens on `localhost:9092`, matching
-   this tool's default `Local` environment.
-
-5. **Verify it's up**:
-
+5. **Check it worked:**
    ```bash
    bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
    ```
+   No error means Kafka is up and reachable (an empty list back is fine —
+   it just means there are no topics yet).
 
-   An empty (but error-free) result means the broker is reachable.
-
-6. Point kafka-viz-tool at it: open the gear icon → set **Kafka home** to
-   the extracted directory from step 3, and confirm the `Local` environment's
-   bootstrap servers are `localhost:9092`.
-
-To stop, `Ctrl+C` the broker first, then ZooKeeper (the broker depends on it).
+To shut Kafka down later, stop the broker window first (Ctrl+C), then the
+ZooKeeper window.
 
 <details>
-<summary>Using KRaft instead of ZooKeeper (Kafka 3.3+)</summary>
+<summary>Using a newer Kafka that doesn't need ZooKeeper (KRaft mode)</summary>
 
-Newer releases can run without ZooKeeper. From the extracted directory:
+Kafka 3.3 and newer can skip ZooKeeper entirely. From inside the unpacked
+folder, run:
 
 ```bash
 KAFKA_CLUSTER_ID="$(bin/kafka-storage.sh random-uuid)"
@@ -106,10 +118,10 @@ bin/kafka-storage.sh format -t "$KAFKA_CLUSTER_ID" -c config/kraft/server.proper
 bin/kafka-server-start.sh config/kraft/server.properties
 ```
 
-Just one process to run/stop — no separate ZooKeeper step.
+Just the one window to start and stop.
 </details>
 
-## Setup
+## Install and run kafka-viz
 
 ```bash
 cd kafka-viz-tool
@@ -117,103 +129,121 @@ npm install
 npm start
 ```
 
-Then open **http://localhost:4545**.
+Then open **http://localhost:4545** in your browser.
 
-On first run it creates `config.json` next to `server.js` with:
-- `kafkaHome` defaulting to `~/kafka_2.13-3.2.1`
-- one environment: `Local` → `localhost:9092`
+The first time it runs, it creates a settings file (`config.json`) next to
+`server.js` with sensible defaults: it expects Kafka at
+`~/kafka_2.13-3.2.1`, and one saved connection called `Local` pointing at
+`localhost:9092`.
 
-Open the gear icon (top right) to:
-- change `kafkaHome` if your install path is different
-- add more environments, e.g.
+If your Kafka lives somewhere else, or you want to add more Kafka servers to
+switch between (like a shared QA or test environment), click the **gear
+icon** in the top right:
+- Change the Kafka folder path if yours isn't in the default location
+- Add more named connections, e.g.
   - `QA2` → `kafka-01.qa2-sg.cld:9092,kafka-02.qa2-sg.cld:9092`
   - `Prod` → `...`
-- remove environments you no longer need
+- Remove connections you no longer need
 
-All of this is saved to `config.json` (plain JSON, git-ignored so your real
-environments/hostnames never get committed) — edit it by hand if you prefer.
-[`config.example.json`](config.example.json) shows the shape if you're
-setting this up fresh in a clone.
+Everything you set here is saved to `config.json` on your own machine only
+— it's excluded from version control (`.gitignore`), so your real server
+addresses never get committed or shared. If you're setting this up fresh
+from a clone and want to see what that file should look like,
+check [`config.example.json`](config.example.json).
 
-## Using it
+## How to use it
 
-The sun/moon icon in the top bar toggles between light and dark themes. It
-defaults to your OS's light/dark preference, and your choice is remembered
-(via `localStorage`) after that.
+There are two pages, switchable from the tabs at the top: **Topics &
+messages** and **Publish**. A dropdown next to them lets you switch which
+Kafka connection you're pointed at (the ones you configured above).
 
-**Topics & messages** — pick an environment, browse/filter topics on the
-left. The **+** button next to the filter box creates a new topic with an
-explicit partition count and replication factor (`kafka-topics.sh --create`)
-— this is the only way to control partition count; publishing to a topic
-that doesn't exist yet only implicitly creates it (subject to the broker's
-`auto.create.topics.enable` setting) with the broker's default partition
-count, which this tool has no way to override. Click a topic to load its
-most recent messages (last 50, newest first,
-merged across all partitions). The header shows how far back the loaded
-batch reaches (oldest message's timestamp) so you know the window you're
-looking at. Above the message list, filter the *loaded* batch by free-text
-search (key/value), partition, key substring, and/or a from/to date range —
-none of this requeries Kafka, so it's instant.
+The sun/moon icon toggles between light and dark mode. It follows your
+system's setting to start, and remembers your choice after that.
 
-**Publish message** next to Reload/View details jumps to the Publish page
-with the selected topic pre-filled and its partition dropdown populated, so
-you don't have to retype the topic name to send it a message.
+### Topics & messages page
 
-Two destructive actions live next to Reload/View details. Both require
-typing the topic name into a confirmation popup before anything happens, and
-while the request is in flight a blocking overlay disables every other
-control (topic list, filters, tabs, other buttons) so nothing else can be
-touched mid-operation:
-- **Purge messages** deletes every record in every partition of the topic
-  (via `kafka-delete-records.sh`, deleting up to each partition's current
-  latest offset) — the topic and its partitions stay, only the data is gone.
-- **Delete topic** removes the topic entirely (`kafka-topics.sh --delete`).
+This is where you browse what's already in Kafka.
 
-Kafka has no way to delete a single partition while keeping the topic (the
-partition count can only increase), so there's no per-partition delete —
-only whole-topic delete or an all-partitions purge.
+- **The list on the left** shows every topic on the selected connection.
+  Type in the box above it to filter the list down (matches as you type).
+  The circular arrow button reloads the list, and the drag handle on the
+  right edge lets you resize the panel if names are getting cut off.
+- **Click a topic** to load its most recent messages (up to the last 50,
+  newest first, combined from every partition). The text under the topic
+  name tells you how far back in time that batch of messages goes.
+- **Search and filters** above the message list let you narrow down what
+  you're looking at — free-text search, a specific partition, a key, or a
+  date/time range. These only search through the messages already loaded on
+  your screen, not the whole topic, so results appear instantly.
+- **View details** opens a popup showing the topic's partitions, replica
+  info, message counts, and which consumer groups are reading from it and
+  how far behind they are.
+- **Publish message** takes you straight to the Publish page with this
+  topic's name already filled in and its partitions ready to pick from — a
+  shortcut so you don't have to retype the topic name.
+- **The "+" button** next to the filter box creates a brand-new topic,
+  where you choose the number of partitions and the replication factor
+  yourself. This is the only way to control the partition count — if you
+  instead just publish to a topic name that doesn't exist yet, Kafka may
+  auto-create it (if the server allows that) with its own default number of
+  partitions, which you can't override from here.
 
-**Publish** — pick the environment (top right), enter a topic name and a
-JSON body, hit Publish. The JSON is validated client- and server-side before
-it's piped into `kafka-console-producer.sh`. Key and partition are both
-optional:
-- **Key** is sent as-is via the console producer's `parse.key`/`key.separator`
-  properties.
-- **Partition** is populated as a dropdown from the topic's actual partitions
-  once you tab out of the Topic field; for a topic that doesn't exist yet (or
-  can't be described), it falls back to a manual number input. Since
-  `kafka-console-producer.sh` has no flag to target a partition directly, an
-  explicit partition (with no key given) is achieved by generating a synthetic
-  key whose murmur2 hash Kafka's default partitioner routes to that exact
-  partition — the actual key sent is shown in the publish result. If you
-  supply your own key *and* a partition, the key wins and the UI warns that
-  the partition isn't guaranteed.
+**The two red buttons — use with care:**
+- **Purge messages** empties every message out of the topic, but keeps the
+  topic itself (so anything that publishes to it can keep working).
+- **Delete topic** removes the topic completely.
 
-## How message loading works
+Both ask you to type the topic's exact name into a popup before doing
+anything, as a safety check against clicking the wrong one, and both show a
+"please wait" screen that blocks all other actions until the operation
+finishes. Kafka doesn't support deleting just one partition and keeping the
+rest — it's all-or-nothing (delete) or empty-but-keep (purge).
 
-For the selected topic, the backend:
-1. runs `GetOffsetShell` to get the latest offset per partition
-2. for each partition, computes `start = max(0, latest - limit)`
-3. runs `kafka-console-consumer.sh --partition P --offset start --max-messages N --timeout-ms 5000` with timestamp/key printing enabled
-4. merges all partitions' messages, sorts by timestamp descending, trims to
-   the requested limit
+### Publish page
 
-This means very "bursty" multi-partition topics may take a few seconds to
-load — it's running one consumer process per partition. Each `kafka-*.sh`
-invocation also pays JVM startup cost (~1-3s), which is the dominant part of
-the latency you'll see, not network time to the broker. If a topic has many
-partitions and you want it faster, lower the limit in `server.js`
-(`GET /api/messages` default `limit=50`).
+This is where you send a test message into a topic.
 
-## Notes / limitations
+1. Pick which Kafka connection to send to, top right.
+2. Type (or arrive with pre-filled) a **topic name**.
+3. Optionally add a **key** — most apps use this to group related messages
+   together — and/or pick a **partition** to send it to specifically. The
+   partition list is filled in automatically from the real topic once you
+   move to the next field; if the topic doesn't exist yet, you can type a
+   partition number by hand instead.
+4. Type your message as **JSON** in the big text box. It's checked for
+   valid JSON as you type, and again on the server before sending, so you
+   can't accidentally send something broken.
+5. Click **Publish**.
 
-- This is intentionally CLI-wrapper-simple: no persistent consumer groups,
-  no schema registry / Avro support, no ACL or SASL/SSL config beyond
-  whatever your `kafka-console-*` scripts pick up from their own defaults.
-  If your brokers need SASL/SSL, add a `client.properties` and extend the
-  `spawn(...)` calls in `server.js` with `--command-config <path>`.
-- Message search/filtering is client-side over the currently loaded batch,
-  not a full-topic search.
-- Explicit partition targeting on publish is best-effort: it works by
-  crafting a key that hashes to the desired partition under Kafka's default
-  partitioner, so it only applies when you don't also supply your own key.
+One technical note if you use both a key and a partition together: Kafka
+normally uses the key to decide which partition a message goes to, so if you
+also explicitly pick a partition, the key still "wins" and the message may
+not land where you picked — the tool will warn you when this happens. If you
+pick a partition *without* giving your own key, the tool works around this
+by quietly generating an internal key that Kafka's own rules will route to
+exactly the partition you chose (you'll see that generated key in the
+result, just so nothing is hidden).
+
+## Why loading messages can feel a bit slow
+
+For each topic, this tool starts a small program per partition to go read
+its messages, then combines and sorts everything for you. Each of those
+programs takes a second or two just to start up (that's normal for these
+Kafka tools, not something wrong with this app), so a topic with many
+partitions takes proportionally longer to load than one with just a few.
+If you want it snappier and don't mind seeing fewer messages at once, you
+can lower the default of 50 messages in `server.js` (search for `limit=50`).
+
+## What this tool doesn't do
+
+- It doesn't manage consumer groups for you, and has no support for schema
+  registries or Avro-formatted messages.
+- It doesn't handle secure clusters out of the box (no built-in
+  username/password or SSL certificate setup) — it relies on whatever your
+  Kafka CLI scripts already do by default. If your Kafka needs that kind of
+  security, you'd need to add a `client.properties` file and adjust
+  `server.js` to pass it along.
+- Searching and filtering messages only looks at what's currently loaded on
+  your screen — it doesn't search the entire topic's full history.
+- Picking a specific partition when publishing is a best-effort trick (see
+  above) — it only works if you don't also supply your own key.
