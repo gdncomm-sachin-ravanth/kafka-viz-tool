@@ -31,7 +31,7 @@ Plus two modals layered on top of either tab:
 
 ### Topics & Messages page
 - **Topic list (left pane)**: lists all topics for the selected environment, client-side filter box, manual refresh button, and a "+" button to create a new topic (name, partitions, replication factor via `kafka-topics.sh --create`) — the new topic is auto-selected once created. The pane is resizable via a drag divider on its right edge (width persisted in `localStorage`). Deleting a topic clears the filter box and refreshes the list.
-- **Message stream (center)**: on selecting a topic, loads its most recent messages (default limit 50, capped at 500) merged and sorted newest-first across *all* partitions
+- **Message stream (center)**: on selecting a topic, loads its most recent messages (default limit 50) merged and sorted newest-first across *all* partitions. "Load older messages" (shown when more is available) pages backward per partition using a cursor (`nextCursor`/`hasMore` in the response) rather than a fixed count, appending to the currently displayed batch
   - Header shows "loaded until" timestamp — the oldest message's timestamp in the loaded batch, so the user knows the time window covered
   - Client-side search box filters the already-loaded messages by key/value text (no re-query)
   - Reload button re-fetches the batch
@@ -73,15 +73,19 @@ Populated by `GET /api/topics/:topic/details`, shows:
 | DELETE | `/api/topics/:topic?env=` | Delete a topic entirely |
 | POST | `/api/topics/:topic/purge?env=` | Delete all records in every partition (`kafka-delete-records.sh`) |
 | GET | `/api/topics/:topic/partitions?env=` | List a topic's partitions (used by Publish's partition picker) |
-| GET | `/api/messages?env=&topic=&limit=` | Fetch recent messages across all partitions |
+| GET | `/api/messages?env=&topic=&limit=&since=&cursor=` | Fetch messages across all partitions, newest first. `cursor` (JSON `{partition: exclusiveEndOffset}`, from a prior response's `nextCursor`) continues an older page for "Load older messages"; response includes `nextCursor` and `hasMore` for pagination. `since` (epoch ms) also accepts a time-bounded load via `GetOffsetShell --time` (capped at 2,000 messages), though no UI control currently calls it |
 | GET | `/api/topics/:topic/details?env=` | Partition info, offsets, consumer groups, config |
 | POST | `/api/publish` | Publish one JSON message to a topic |
 
 ### Message-loading algorithm
 1. `GetOffsetShell` fetches latest offset per partition
-2. For each partition: `start = max(0, latest - limit)`
-3. Spawn one `kafka-console-consumer.sh` per partition (`--offset start --max-messages N --timeout-ms`)
-4. Merge all partitions' results, sort by timestamp descending, trim to `limit`
+2. For each partition, the fetch range's end (`rangeEnd`) is the partition's latest offset by default, or the offset given in `cursor` for that partition when paging backward
+3. The range's start offset is either:
+   - `rangeEnd - limit` for a plain count-based/pagination load, or
+   - the offset returned by `GetOffsetShell --time <since>` for a time-bounded load (a direct index lookup, not a scan) — still floored at `rangeEnd - limit` as a per-partition safety cap
+4. Spawn one `kafka-console-consumer.sh` per partition (`--offset start --max-messages N --timeout-ms`)
+5. Merge all partitions' results, sort by timestamp descending, trim to `limit`
+6. Return each partition's start offset as `nextCursor`, for a subsequent "load older" request to continue from; `hasMore` is true if any partition's start offset is still above 0
 
 Each CLI invocation pays ~1-3s JVM startup cost, so topics with many partitions take longer to load — this is a known/documented limitation.
 

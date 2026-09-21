@@ -77,16 +77,20 @@
       <section class="center-column">
         <!-- ===== topic details bar ===== -->
         <div class="topic-details-bar">
-          <div>
+          <div class="topic-details-header">
             <h2 id="current-topic-name">Select a topic</h2>
             <p id="loaded-until" class="muted"></p>
           </div>
           <div class="message-controls">
-            <button id="refresh-messages" class="btn" disabled>Reload</button>
-            <button id="view-details-btn" class="btn" disabled>View details</button>
-            <button id="publish-to-topic-btn" class="btn" disabled>Publish message</button>
-            <button id="purge-topic-btn" class="btn btn-danger" disabled>Purge messages</button>
-            <button id="delete-topic-btn" class="btn btn-danger" disabled>Delete topic</button>
+            <div class="message-controls-group">
+              <button id="refresh-messages" class="btn" disabled>Reload</button>
+              <button id="view-details-btn" class="btn" disabled>View details</button>
+              <button id="publish-to-topic-btn" class="btn" disabled>Publish message</button>
+            </div>
+            <div class="message-controls-group message-controls-danger">
+              <button id="purge-topic-btn" class="btn btn-danger" disabled>Purge messages</button>
+              <button id="delete-topic-btn" class="btn btn-danger" disabled>Delete topic</button>
+            </div>
           </div>
         </div>
 
@@ -97,8 +101,8 @@
             <option value="">All partitions</option>
           </select>
           <input id="filter-key" type="text" placeholder="Filter by key…" disabled />
-          <input id="filter-date-from" type="datetime-local" title="From" disabled />
-          <input id="filter-date-to" type="datetime-local" title="To" disabled />
+          <input id="filter-date-from" type="date" title="From date" disabled />
+          <input id="filter-date-to" type="date" title="To date" disabled />
           <button id="clear-filters" class="btn" disabled>Clear</button>
         </div>
 
@@ -108,6 +112,7 @@
             <div id="message-stream" class="message-stream">
               <p class="empty-hint">Pick a topic on the left to load its most recent messages.</p>
             </div>
+            <button id="load-older-btn" class="btn load-older-btn" hidden>Load older messages</button>
           </section>
 
           <section class="message-detail-pane">
