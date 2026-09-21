@@ -3,7 +3,9 @@ const state = {
   currentEnv: null,
   topics: [],
   selectedTopic: null,
-  messages: [], // last loaded batch for the selected topic
+  messages: [], // loaded batch for the selected topic (accumulates as older pages load)
+  nextCursor: null, // per-partition offset to resume from for "Load older messages"
+  hasMore: false,
   selectedMessageIndex: null,
   detailsOpen: false,
   detailsLoadedForTopic: null
@@ -254,6 +256,45 @@ el('topic-filter').addEventListener('input', renderTopicList);
 el('refresh-topics').addEventListener('click', loadTopics);
 el('refresh-messages').addEventListener('click', () => selectTopic(state.selectedTopic));
 
+el('load-older-btn').addEventListener('click', async () => {
+  const topic = state.selectedTopic;
+  if (!topic || !state.nextCursor) return;
+
+  const btn = el('load-older-btn');
+  btn.disabled = true;
+  btn.textContent = 'Loading…';
+
+  try {
+    const query = new URLSearchParams({
+      env: state.currentEnv,
+      topic,
+      limit: '50',
+      cursor: JSON.stringify(state.nextCursor)
+    });
+    const data = await api(`/api/messages?${query.toString()}`);
+    if (state.selectedTopic !== topic) return;
+
+    // Cursor pages are disjoint and strictly older than what's loaded, so
+    // this is a plain append, not a merge-and-dedupe.
+    state.messages = state.messages.concat(data.messages).sort((a, b) => b.timestamp - a.timestamp);
+    state.nextCursor = data.nextCursor;
+    state.hasMore = data.hasMore;
+    renderMessages();
+    populatePartitionFilter();
+    applyFilters();
+    const oldest = state.messages[state.messages.length - 1];
+    el('loaded-until').textContent = oldest
+      ? `Showing ${state.messages.length} messages, loaded back to ${new Date(oldest.timestamp).toLocaleString()}`
+      : 'No messages found on this topic yet';
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Load older messages';
+    btn.hidden = !state.hasMore;
+  }
+});
+
 // ---------- new topic ----------
 
 function openNewTopicModal() {
@@ -325,6 +366,8 @@ function resetFilters() {
 function resetMessagePane() {
   state.selectedTopic = null;
   state.messages = [];
+  state.nextCursor = null;
+  state.hasMore = false;
   state.selectedMessageIndex = null;
   el('current-topic-name').textContent = 'Select a topic';
   el('loaded-until').textContent = '';
@@ -337,6 +380,7 @@ function resetMessagePane() {
   el('publish-to-topic-btn').disabled = true;
   el('purge-topic-btn').disabled = true;
   el('delete-topic-btn').disabled = true;
+  el('load-older-btn').hidden = true;
 }
 
 async function selectTopic(topic) {
@@ -344,27 +388,37 @@ async function selectTopic(topic) {
   state.selectedMessageIndex = null;
   renderTopicList();
   el('current-topic-name').textContent = topic;
-  el('loaded-until').textContent = 'Loading recent messages…';
-  el('message-stream').innerHTML = '<div class="loading-hint"><span class="spinner"></span> Loading recent messages…</div>';
   el('message-detail').innerHTML = '<p class="empty-hint">Select a message to see its full payload.</p>';
   resetFilters();
   setFiltersEnabled(false);
-  el('refresh-messages').disabled = true;
   el('view-details-btn').disabled = true;
   el('publish-to-topic-btn').disabled = true;
   el('purge-topic-btn').disabled = true;
   el('delete-topic-btn').disabled = true;
 
+  await loadMessages(topic);
+}
+
+// Loads (replacing whatever's currently shown) the newest messages for a
+// topic. Used for the initial load and Reload.
+async function loadMessages(topic) {
+  el('refresh-messages').disabled = true;
+  el('load-older-btn').hidden = true;
+  el('loaded-until').textContent = 'Loading recent messages…';
+  el('message-stream').innerHTML = '<div class="loading-hint"><span class="spinner"></span> Loading recent messages…</div>';
+
+  const query = new URLSearchParams({ env: state.currentEnv, topic, limit: '50' });
+
   try {
-    const data = await api(
-      `/api/messages?env=${encodeURIComponent(state.currentEnv)}&topic=${encodeURIComponent(topic)}&limit=50`
-    );
+    const data = await api(`/api/messages?${query.toString()}`);
     // A reset (env switch, topic reselect, delete) may have happened while
     // this request was in flight - don't let a stale response re-enable
     // controls for a topic that's no longer selected.
     if (state.selectedTopic !== topic) return;
 
     state.messages = data.messages;
+    state.nextCursor = data.nextCursor;
+    state.hasMore = data.hasMore;
     renderMessages();
     populatePartitionFilter();
     el('loaded-until').textContent = data.loadedUntil
@@ -376,6 +430,7 @@ async function selectTopic(topic) {
     el('publish-to-topic-btn').disabled = false;
     el('purge-topic-btn').disabled = false;
     el('delete-topic-btn').disabled = false;
+    el('load-older-btn').hidden = !state.hasMore;
   } catch (err) {
     if (state.selectedTopic !== topic) return;
 
@@ -462,8 +517,12 @@ function applyFilters() {
   const q = el('message-search').value.toLowerCase();
   const partition = el('filter-partition').value;
   const keyFilter = el('filter-key').value.toLowerCase();
-  const fromMs = el('filter-date-from').value ? new Date(el('filter-date-from').value).getTime() : null;
-  const toMs = el('filter-date-to').value ? new Date(el('filter-date-to').value).getTime() : null;
+  // Date-only inputs ("2026-09-16") - anchor to local midnight rather than
+  // UTC, and treat "to" as the end of that day so it's inclusive.
+  const fromDate = el('filter-date-from').value;
+  const toDate = el('filter-date-to').value;
+  const fromMs = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : null;
+  const toMs = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : null;
 
   document.querySelectorAll('.msg-row').forEach((row) => {
     const ts = Number(row.dataset.timestamp);

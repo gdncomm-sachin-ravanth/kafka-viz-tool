@@ -168,13 +168,19 @@ This is where you browse what's already in Kafka.
   Type in the box above it to filter the list down (matches as you type).
   The circular arrow button reloads the list, and the drag handle on the
   right edge lets you resize the panel if names are getting cut off.
-- **Click a topic** to load its most recent messages (up to the last 50,
-  newest first, combined from every partition). The text under the topic
-  name tells you how far back in time that batch of messages goes.
+- **Click a topic** to load its most recent messages (the last 50, newest
+  first, combined from every partition). The text under the topic name
+  tells you how far back in time that batch of messages goes.
+- **"Load older messages"**, at the bottom of the message list, fetches the
+  next 50 messages further back in time and adds them to what's already
+  showing — click it repeatedly (or just once) to page back as far as you
+  need. It disappears once you've reached the very first message on the
+  topic.
 - **Search and filters** above the message list let you narrow down what
   you're looking at — free-text search, a specific partition, a key, or a
-  date/time range. These only search through the messages already loaded on
-  your screen, not the whole topic, so results appear instantly.
+  from/to date range (also pick these from the calendar rather than typing
+  them). These only search through the messages already loaded on your
+  screen, not the whole topic, so results appear instantly.
 - **View details** opens a popup showing the topic's partitions, replica
   info, message counts, and which consumer groups are reading from it and
   how far behind they are.
@@ -233,6 +239,10 @@ Kafka tools, not something wrong with this app), so a topic with many
 partitions takes proportionally longer to load than one with just a few.
 If you want it snappier and don't mind seeing fewer messages at once, you
 can lower the default of 50 messages in `server.js` (search for `limit=50`).
+
+**"Load older messages"** is cheap per click — it picks up exactly where
+the last page of messages left off (per partition), rather than
+re-fetching or re-scanning anything you've already loaded.
 
 ## What this tool doesn't do
 

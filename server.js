@@ -344,8 +344,7 @@ function parseConsumerLine(line) {
   return { timestamp, key, value };
 }
 
-async function fetchRecentMessagesForPartition(cfg, env, topic, partition, latestOffset, limit) {
-  const startOffset = Math.max(0, latestOffset - limit);
+async function fetchMessagesForPartition(cfg, env, topic, partition, startOffset, latestOffset) {
   const countToFetch = latestOffset - startOffset;
   if (countToFetch <= 0) return [];
 
@@ -385,7 +384,21 @@ app.get('/api/messages', async (req, res) => {
 
   const envName = req.query.env;
   const topic = req.query.topic;
-  const limit = Math.min(Number(req.query.limit) || 50, 500);
+  const sinceMs = req.query.since ? Number(req.query.since) : null;
+
+  // A "load older" page continues from where a previous response's
+  // nextCursor left off: {partition: exclusiveEndOffset}. Absent a cursor,
+  // a partition's fetch ends at its latest (newest) offset.
+  let cursor = null;
+  if (req.query.cursor) {
+    try {
+      cursor = JSON.parse(req.query.cursor);
+    } catch {
+      return res.status(400).json({ error: 'Invalid cursor' });
+    }
+  }
+
+  const limit = Math.min(Number(req.query.limit) || 50, sinceMs ? 2000 : 500);
 
   const env = getEnv(cfg, envName);
   if (!env) return res.status(400).json({ error: `Unknown environment: ${envName}` });
@@ -393,12 +406,30 @@ app.get('/api/messages', async (req, res) => {
 
   try {
     const partitions = await getLatestOffsets(cfg, env, topic);
-    const perPartitionLimit = limit; // fetch up to `limit` from each, then merge+trim
 
+    // "Since" mode looks up each partition's start offset directly via
+    // GetOffsetShell's time index (a single fast lookup, not a scan), then
+    // fetches from there instead of walking back a fixed message count.
+    const startOffsetByPartition = sinceMs && Number.isFinite(sinceMs)
+      ? new Map((await getOffsetsAtTime(cfg, env, topic, sinceMs)).map((o) => [o.partition, o.offset]))
+      : null;
+
+    const nextCursor = {};
     const results = await Promise.all(
-      partitions.map((p) =>
-        fetchRecentMessagesForPartition(cfg, env, topic, p.partition, p.latestOffset, perPartitionLimit)
-      )
+      partitions.map((p) => {
+        const rangeEnd = cursor && Object.prototype.hasOwnProperty.call(cursor, String(p.partition))
+          ? cursor[String(p.partition)]
+          : p.latestOffset;
+
+        const flooredStart = startOffsetByPartition ? (startOffsetByPartition.get(p.partition) ?? rangeEnd) : 0;
+        // Still cap how far back a single partition fetches per page, so a
+        // topic with one very active partition can't blow the response
+        // budget (or, since mode, the "since" timestamp) on its own.
+        const startOffset = Math.max(0, flooredStart, rangeEnd - limit);
+
+        nextCursor[p.partition] = startOffset; // where the *next* older page should end
+        return fetchMessagesForPartition(cfg, env, topic, p.partition, startOffset, rangeEnd);
+      })
     );
 
     let messages = results.flat();
@@ -409,10 +440,16 @@ app.get('/api/messages', async (req, res) => {
       ? messages[messages.length - 1].timestamp
       : null;
 
+    // More is available if any partition still has offsets before where
+    // this page's fetch stopped.
+    const hasMore = partitions.some((p) => (nextCursor[p.partition] ?? 0) > 0);
+
     res.json({
       messages,
       loadedUntil: oldestLoadedTimestamp, // ms epoch; oldest message in this loaded batch
-      partitionCount: partitions.length
+      partitionCount: partitions.length,
+      nextCursor,
+      hasMore
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
