@@ -106,6 +106,12 @@ function getEnv(cfg, name) {
   return cfg.environments.find((e) => e.name === name);
 }
 
+// Kafka's own convention: internal topics (__consumer_offsets,
+// __transaction_state, etc.) are prefixed with a double underscore.
+function isInternalTopic(topic) {
+  return topic.startsWith('__');
+}
+
 // ---------- config / environment endpoints ----------
 
 app.get('/api/config', (req, res) => {
@@ -221,6 +227,9 @@ app.delete('/api/topics/:topic', async (req, res) => {
   const topic = req.params.topic;
   const env = getEnv(cfg, envName);
   if (!env) return res.status(400).json({ error: `Unknown environment: ${envName}` });
+  if (isInternalTopic(topic)) {
+    return res.status(400).json({ error: `"${topic}" is an internal Kafka topic and can't be deleted here` });
+  }
 
   const { code, stderr } = await runCommand(
     kafkaBin(cfg, 'kafka-topics.sh'),
@@ -247,6 +256,9 @@ app.post('/api/topics/:topic/purge', async (req, res) => {
   const topic = req.params.topic;
   const env = getEnv(cfg, envName);
   if (!env) return res.status(400).json({ error: `Unknown environment: ${envName}` });
+  if (isInternalTopic(topic)) {
+    return res.status(400).json({ error: `"${topic}" is an internal Kafka topic and can't be purged here` });
+  }
 
   let offsetFile = null;
   try {

@@ -205,6 +205,14 @@ anything, as a safety check against clicking the wrong one, and both show a
 finishes. Kafka doesn't support deleting just one partition and keeping the
 rest — it's all-or-nothing (delete) or empty-but-keep (purge).
 
+Topics Kafka creates and manages for itself — their names always start with
+a double underscore, like `__consumer_offsets` — show an **internal** tag
+in the topic list, and both red buttons stay disabled for them. These
+topics keep Kafka itself running, so purging or deleting one isn't a normal
+cleanup action; this is blocked both in the button (so you can't click it)
+and again on the server (so it's blocked even if something calls the API
+directly).
+
 ### Publish page
 
 This is where you send a test message into a topic.
