@@ -39,6 +39,7 @@ Plus two modals layered on top of either tab:
   - "Publish message" button switches to the Publish page with the selected topic pre-filled and its partition dropdown populated
   - Filters (all client-side over the loaded batch): partition dropdown, key substring, date range, plus the free-text search
   - "Purge messages" deletes all records in every partition (topic/partitions remain); "Delete topic" removes the topic entirely. Both require typing the topic name into a confirmation modal, and both show a blocking full-page overlay (disabling every other control) while the request is in flight
+  - Internal Kafka topics (name starts with `__`, e.g. `__consumer_offsets`) get an "internal" badge in the topic list, and both buttons stay disabled when one is selected - enforced client-side (`isInternalTopic` in app.js) and again server-side (same check in server.js on the delete/purge routes) so it can't be bypassed via a direct API call
 - **Message detail pane (right)**: clicking a message in the stream shows its full payload, pretty-printed if it parses as JSON
 
 ### Publish page
@@ -70,8 +71,8 @@ Populated by `GET /api/topics/:topic/details`, shows:
 | DELETE | `/api/environments/:name` | Remove an environment |
 | GET | `/api/topics?env=` | List topics (`kafka-topics.sh --list`) |
 | POST | `/api/topics` | Create a topic with explicit partitions/replication factor (`kafka-topics.sh --create`) |
-| DELETE | `/api/topics/:topic?env=` | Delete a topic entirely |
-| POST | `/api/topics/:topic/purge?env=` | Delete all records in every partition (`kafka-delete-records.sh`) |
+| DELETE | `/api/topics/:topic?env=` | Delete a topic entirely (rejects internal topics, name starting with `__`) |
+| POST | `/api/topics/:topic/purge?env=` | Delete all records in every partition (`kafka-delete-records.sh`); rejects internal topics |
 | GET | `/api/topics/:topic/partitions?env=` | List a topic's partitions (used by Publish's partition picker) |
 | GET | `/api/messages?env=&topic=&limit=&since=&cursor=` | Fetch messages across all partitions, newest first. `cursor` (JSON `{partition: exclusiveEndOffset}`, from a prior response's `nextCursor`) continues an older page for "Load older messages"; response includes `nextCursor` and `hasMore` for pagination. `since` (epoch ms) also accepts a time-bounded load via `GetOffsetShell --time` (capped at 2,000 messages), though no UI control currently calls it |
 | GET | `/api/topics/:topic/details?env=` | Partition info, offsets, consumer groups, config |

@@ -13,6 +13,11 @@ const state = {
 
 const el = (id) => document.getElementById(id);
 
+// Kafka's own convention: internal topics (__consumer_offsets,
+// __transaction_state, etc.) are prefixed with a double underscore. The
+// server enforces the same rule on purge/delete - this just drives the UI.
+const isInternalTopic = (topic) => topic.startsWith('__');
+
 // ---------- theme ----------
 
 const THEME_KEY = 'kvt-theme';
@@ -244,9 +249,14 @@ function renderTopicList() {
     .filter((t) => t.toLowerCase().includes(filter))
     .forEach((t) => {
       const li = document.createElement('li');
-      li.textContent = t;
       li.title = t;
       if (t === state.selectedTopic) li.classList.add('selected');
+      if (isInternalTopic(t)) {
+        li.classList.add('internal-topic');
+        li.innerHTML = `<span class="internal-badge" title="Kafka internal topic - purge/delete disabled">internal</span>${escapeHtml(t)}`;
+      } else {
+        li.textContent = t;
+      }
       li.addEventListener('click', () => selectTopic(t));
       list.appendChild(li);
     });
@@ -399,6 +409,18 @@ async function selectTopic(topic) {
   await loadMessages(topic);
 }
 
+// Purge/delete stay disabled for internal topics (__consumer_offsets etc.)
+// even once everything else has finished loading - the server rejects
+// those requests anyway, so this just keeps the buttons honest.
+function setDestructiveButtonsEnabled(topic) {
+  const allowed = !isInternalTopic(topic);
+  el('purge-topic-btn').disabled = !allowed;
+  el('delete-topic-btn').disabled = !allowed;
+  const reason = allowed ? '' : 'Internal Kafka topics can’t be purged or deleted here.';
+  el('purge-topic-btn').title = reason;
+  el('delete-topic-btn').title = reason;
+}
+
 // Loads (replacing whatever's currently shown) the newest messages for a
 // topic. Used for the initial load and Reload.
 async function loadMessages(topic) {
@@ -428,8 +450,7 @@ async function loadMessages(topic) {
     el('refresh-messages').disabled = false;
     el('view-details-btn').disabled = false;
     el('publish-to-topic-btn').disabled = false;
-    el('purge-topic-btn').disabled = false;
-    el('delete-topic-btn').disabled = false;
+    setDestructiveButtonsEnabled(topic);
     el('load-older-btn').hidden = !state.hasMore;
   } catch (err) {
     if (state.selectedTopic !== topic) return;
@@ -439,8 +460,7 @@ async function loadMessages(topic) {
     // details/publish/purge/delete can still work even if message load failed
     el('view-details-btn').disabled = false;
     el('publish-to-topic-btn').disabled = false;
-    el('purge-topic-btn').disabled = false;
-    el('delete-topic-btn').disabled = false;
+    setDestructiveButtonsEnabled(topic);
     toast(err.message, true);
   }
 }
