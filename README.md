@@ -144,6 +144,8 @@ icon** in the top right:
   - `QA2` → `kafka-01.qa2-sg.cld:9092,kafka-02.qa2-sg.cld:9092`
   - `Prod` → `...`
 - Remove connections you no longer need
+- Set (or change) the admin passcode that gates Purge messages / Delete
+  topic — see further down for how that works
 
 Everything you set here is saved to `config.json` on your own machine only
 — it's excluded from version control (`.gitignore`), so your real server
@@ -203,7 +205,17 @@ This is where you browse what's already in Kafka.
   topic itself (so anything that publishes to it can keep working).
 - **Delete topic** removes the topic completely.
 
-Both ask you to type the topic's exact name into a popup before doing
+Both are also gated behind an **admin passcode**, set once in Settings (gear
+icon → "Admin passcode"). Nobody can click Purge/Delete — even if they can
+open this tool — without knowing that passcode. The first time you (or
+anyone else) click either button, you're prompted for it; a correct entry
+unlocks both actions for the rest of that browser tab's session (20
+minutes, or until you reload the page). If no passcode has been set up yet,
+both buttons are locked for everyone until someone sets one. This check
+also happens on the server, not just in the button — so it can't be
+bypassed by calling the API directly, only by knowing the actual passcode.
+
+Both also ask you to type the topic's exact name into a popup before doing
 anything, as a safety check against clicking the wrong one, and both show a
 "please wait" screen that blocks all other actions until the operation
 finishes. Kafka doesn't support deleting just one partition and keeping the

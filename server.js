@@ -15,6 +15,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const app = express();
@@ -112,11 +113,86 @@ function isInternalTopic(topic) {
   return topic.startsWith('__');
 }
 
+// ---------- admin gate (Purge messages / Delete topic) ----------
+//
+// Purge/delete are destructive enough that not everyone using this tool
+// should be able to click them unprompted. This gates them behind a shared
+// admin passcode configured in Settings: unlocking issues a short-lived
+// token the client must send back on each destructive request. The
+// passcode itself is never stored in plain text or sent back to the
+// client - only its hash lives in config.json, and only a boolean
+// ("is one configured") is ever returned from GET /api/config.
+const ADMIN_TOKEN_TTL_MS = 20 * 60 * 1000; // 20 minutes
+const adminTokens = new Map(); // token -> expiry timestamp
+
+function hashPasscode(passcode) {
+  return crypto.createHash('sha256').update(passcode, 'utf8').digest('hex');
+}
+
+function issueAdminToken() {
+  const token = crypto.randomBytes(24).toString('hex');
+  adminTokens.set(token, Date.now() + ADMIN_TOKEN_TTL_MS);
+  return token;
+}
+
+function isAdminUnlocked(req) {
+  const token = req.get('X-Admin-Token');
+  if (!token) return false;
+  const expiry = adminTokens.get(token);
+  if (!expiry) return false;
+  if (Date.now() > expiry) {
+    adminTokens.delete(token);
+    return false;
+  }
+  return true;
+}
+
+// Applied to Purge/Delete routes, after the internal-topic check (which
+// applies unconditionally, admin or not).
+function requireAdmin(req, res) {
+  if (isAdminUnlocked(req)) return true;
+  res.status(403).json({ error: 'Admin unlock required for this action.' });
+  return false;
+}
+
+app.post('/api/admin/unlock', (req, res) => {
+  const { passcode } = req.body;
+  const cfg = loadConfig();
+  if (!cfg.adminPasscodeHash) {
+    return res.status(400).json({ error: 'No admin passcode is set up yet - set one in Settings first.' });
+  }
+  if (!passcode || hashPasscode(passcode) !== cfg.adminPasscodeHash) {
+    return res.status(401).json({ error: 'Incorrect passcode' });
+  }
+  const token = issueAdminToken();
+  res.json({ token, expiresInMs: ADMIN_TOKEN_TTL_MS });
+});
+
+// Sets or changes the admin passcode. If one is already set, the current
+// passcode must be supplied to change it - so a non-admin can't just flip
+// this off from the UI without already knowing it.
+app.post('/api/admin/passcode', (req, res) => {
+  const { currentPasscode, newPasscode } = req.body;
+  if (!newPasscode || typeof newPasscode !== 'string' || newPasscode.length < 4) {
+    return res.status(400).json({ error: 'newPasscode must be at least 4 characters' });
+  }
+  const cfg = loadConfig();
+  if (cfg.adminPasscodeHash) {
+    if (!currentPasscode || hashPasscode(currentPasscode) !== cfg.adminPasscodeHash) {
+      return res.status(401).json({ error: 'Current passcode is incorrect' });
+    }
+  }
+  cfg.adminPasscodeHash = hashPasscode(newPasscode);
+  saveConfig(cfg);
+  res.json({ ok: true });
+});
+
 // ---------- config / environment endpoints ----------
 
 app.get('/api/config', (req, res) => {
   const cfg = loadConfig();
-  res.json(cfg);
+  const { adminPasscodeHash, ...rest } = cfg;
+  res.json({ ...rest, adminPasscodeConfigured: !!adminPasscodeHash });
 });
 
 app.post('/api/config/kafka-home', (req, res) => {
@@ -230,6 +306,7 @@ app.delete('/api/topics/:topic', async (req, res) => {
   if (isInternalTopic(topic)) {
     return res.status(400).json({ error: `"${topic}" is an internal Kafka topic and can't be deleted here` });
   }
+  if (!requireAdmin(req, res)) return;
 
   const { code, stderr } = await runCommand(
     kafkaBin(cfg, 'kafka-topics.sh'),
@@ -259,6 +336,7 @@ app.post('/api/topics/:topic/purge', async (req, res) => {
   if (isInternalTopic(topic)) {
     return res.status(400).json({ error: `"${topic}" is an internal Kafka topic and can't be purged here` });
   }
+  if (!requireAdmin(req, res)) return;
 
   let offsetFile = null;
   try {
