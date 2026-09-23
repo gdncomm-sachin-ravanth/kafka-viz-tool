@@ -40,7 +40,7 @@ Plus two modals layered on top of either tab:
   - Filters (all client-side over the loaded batch): partition dropdown, key substring, date range, plus the free-text search
   - "Purge messages" deletes all records in every partition (topic/partitions remain); "Delete topic" removes the topic entirely. Both require typing the topic name into a confirmation modal, and both show a blocking full-page overlay (disabling every other control) while the request is in flight
   - Internal Kafka topics (name starts with `__`, e.g. `__consumer_offsets`) get an "internal" badge in the topic list, and both buttons stay disabled when one is selected - enforced client-side (`isInternalTopic` in app.js) and again server-side (same check in server.js on the delete/purge routes) so it can't be bypassed via a direct API call
-- **Message detail pane (right)**: clicking a message in the stream shows its full payload, pretty-printed if it parses as JSON
+- **Message detail pane (right)**: clicking a message in the stream shows its full payload, pretty-printed if it parses as JSON. A toolbar above it has a search box that highlights matching text within the payload (client-side, `<mark>` wrapping - doesn't touch the underlying content), and a copy button that copies the full displayed payload to the clipboard (Clipboard API with an `execCommand('copy')` fallback for contexts where it's unavailable)
 
 ### Publish page
 - Topic name input — can be typed directly, or auto-filled by the "Publish message" button from the Topics page
