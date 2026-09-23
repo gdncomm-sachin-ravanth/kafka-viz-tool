@@ -1,0 +1,32 @@
+README.md
+  s_7ed27761403ca9::t_da6b2672b4fcd3 184-187
+public/app.js
+  s_7ed27761403ca9::t_2bd052dc4c2270 556-576,583-587
+  s_7ed27761403ca9::t_557cc6d9e90629 383,389-390,404,408-410
+  s_7ed27761403ca9::t_5607185cd77fd2 10
+  s_7ed27761403ca9::t_13a6a095eeeadf 388,513,515,517-518,521-530,538,542-546,548-555,577-582,588-589
+  s_7ed27761403ca9::t_aba3dae8dec1b8 547
+  s_7ed27761403ca9::t_fd87a0cf203972 590
+CODEBASE_OVERVIEW.md
+  s_7ed27761403ca9::t_da3c5de5320345 43
+public/index.html
+  s_7ed27761403ca9::t_ec1d28c8d35382 119-127
+public/style.css
+  s_7ed27761403ca9::t_59aab1e69b9ba9 139-145,486-502,509-514
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "6da870f43e2265a796126b65f5e58eb8cd300862",
+  "prompts": {},
+  "sessions": {
+    "s_7ed27761403ca9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99c1fef9-ac2a-4553-83d0-079656a25944",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "gdncomm-sachin-ravanth <sachin.ravanth@gdn-commerce.com>"
+    }
+  }
+}
