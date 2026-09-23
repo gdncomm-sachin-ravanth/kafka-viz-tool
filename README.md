@@ -203,6 +203,12 @@ This is where you browse what's already in Kafka.
   topic itself (so anything that publishes to it can keep working).
 - **Delete topic** removes the topic completely.
 
+They're hidden behind a small lock icon next to "Publish message" so they
+aren't sitting in plain sight — click it and enter the admin password to
+reveal them for the rest of the page load. *(This is a placeholder gate
+using a fixed password, not real per-user access control — a proper
+mechanism is still being worked out.)*
+
 Both ask you to type the topic's exact name into a popup before doing
 anything, as a safety check against clicking the wrong one, and both show a
 "please wait" screen that blocks all other actions until the operation
