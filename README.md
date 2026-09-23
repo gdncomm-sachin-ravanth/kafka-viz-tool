@@ -181,6 +181,10 @@ This is where you browse what's already in Kafka.
   from/to date range (also pick these from the calendar rather than typing
   them). These only search through the messages already loaded on your
   screen, not the whole topic, so results appear instantly.
+- **Clicking a message** shows its full payload on the right. Above it, a
+  search box highlights any matching text within that payload (handy for
+  finding a specific field on a long message), and the copy icon copies the
+  whole payload to your clipboard exactly as shown.
 - **View details** opens a popup showing the topic's partitions, replica
   info, message counts, and which consumer groups are reading from it and
   how far behind they are.

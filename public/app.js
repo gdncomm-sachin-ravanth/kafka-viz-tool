@@ -7,6 +7,7 @@ const state = {
   nextCursor: null, // per-partition offset to resume from for "Load older messages"
   hasMore: false,
   selectedMessageIndex: null,
+  selectedMessageValue: null, // raw (pretty-printed if JSON) text of the currently viewed message
   detailsOpen: false,
   detailsLoadedForTopic: null
 };
@@ -379,10 +380,14 @@ function resetMessagePane() {
   state.nextCursor = null;
   state.hasMore = false;
   state.selectedMessageIndex = null;
+  state.selectedMessageValue = null;
   el('current-topic-name').textContent = 'Select a topic';
   el('loaded-until').textContent = '';
   el('message-stream').innerHTML = '<p class="empty-hint">Pick a topic on the left to load its most recent messages.</p>';
   el('message-detail').innerHTML = '<p class="empty-hint">Select a message to see its full payload.</p>';
+  el('detail-search').value = '';
+  el('detail-search').disabled = true;
+  el('copy-message-btn').disabled = true;
   resetFilters();
   setFiltersEnabled(false);
   el('refresh-messages').disabled = true;
@@ -396,9 +401,13 @@ function resetMessagePane() {
 async function selectTopic(topic) {
   state.selectedTopic = topic;
   state.selectedMessageIndex = null;
+  state.selectedMessageValue = null;
   renderTopicList();
   el('current-topic-name').textContent = topic;
   el('message-detail').innerHTML = '<p class="empty-hint">Select a message to see its full payload.</p>';
+  el('detail-search').value = '';
+  el('detail-search').disabled = true;
+  el('copy-message-btn').disabled = true;
   resetFilters();
   setFiltersEnabled(false);
   el('view-details-btn').disabled = true;
@@ -501,10 +510,24 @@ function selectMessage(idx) {
   });
   const m = state.messages[idx];
   const detail = el('message-detail');
+  el('detail-search').value = '';
   if (!m) {
+    state.selectedMessageValue = null;
     detail.innerHTML = '<p class="empty-hint">Select a message to see its full payload.</p>';
+    el('detail-search').disabled = true;
+    el('copy-message-btn').disabled = true;
     return;
   }
+  state.selectedMessageValue = prettyIfJson(m.value);
+  el('detail-search').disabled = false;
+  el('copy-message-btn').disabled = false;
+  renderMessageDetail(m);
+}
+
+// Re-renders just the payload body, highlighting any text that matches the
+// detail-search box - the meta line (timestamp/partition/key) stays as-is.
+function renderMessageDetail(m) {
+  const detail = el('message-detail');
   detail.innerHTML = `
     <div class="detail-meta">
       <span>${new Date(m.timestamp).toLocaleString()}</span>
@@ -512,9 +535,58 @@ function selectMessage(idx) {
       <span>offset ${m.offset}</span>
       ${m.key ? `<span class="msg-key">key: ${escapeHtml(m.key)}</span>` : '<span>no key</span>'}
     </div>
-    <div class="msg-value">${escapeHtml(prettyIfJson(m.value))}</div>
+    <div class="msg-value">${highlightMatches(state.selectedMessageValue, el('detail-search').value)}</div>
   `;
 }
+
+function highlightMatches(text, query) {
+  const escaped = escapeHtml(text);
+  const q = query.trim();
+  if (!q) return escaped;
+  const pattern = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // escape regex metacharacters
+  return escaped.replace(new RegExp(pattern, 'gi'), (hit) => `<mark class="search-hit">${hit}</mark>`);
+}
+
+el('detail-search').addEventListener('input', () => {
+  const idx = state.selectedMessageIndex;
+  const m = idx === null ? null : state.messages[idx];
+  if (m) renderMessageDetail(m);
+});
+
+// Falls back to the legacy execCommand approach for contexts where the
+// async Clipboard API is unavailable or blocked (e.g. no user-gesture
+// context, or a browser that doesn't grant clipboard-write by default).
+function legacyCopyToClipboard(text) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(textarea);
+  return ok;
+}
+
+el('copy-message-btn').addEventListener('click', async () => {
+  if (state.selectedMessageValue === null) return;
+  try {
+    await navigator.clipboard.writeText(state.selectedMessageValue);
+    toast('Copied message to clipboard');
+  } catch {
+    if (legacyCopyToClipboard(state.selectedMessageValue)) {
+      toast('Copied message to clipboard');
+    } else {
+      toast('Could not copy to clipboard', true);
+    }
+  }
+});
 
 function prettyIfJson(value) {
   try {

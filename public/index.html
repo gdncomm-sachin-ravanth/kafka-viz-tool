@@ -116,6 +116,15 @@
           </section>
 
           <section class="message-detail-pane">
+            <div class="message-detail-toolbar">
+              <input id="detail-search" type="text" placeholder="Search fields (key or value)…" disabled />
+              <button id="copy-message-btn" class="icon-btn" disabled title="Copy full message as JSON">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <rect x="9" y="9" width="11" height="11" rx="1.5" stroke="currentColor" stroke-width="1.6"/>
+                  <path d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1" stroke="currentColor" stroke-width="1.6"/>
+                </svg>
+              </button>
+            </div>
             <div id="message-detail" class="message-detail">
               <p class="empty-hint">Select a message to see its full payload.</p>
             </div>
