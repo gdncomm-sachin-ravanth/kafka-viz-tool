@@ -9,8 +9,13 @@ const state = {
   selectedMessageIndex: null,
   selectedMessageValue: null, // raw (pretty-printed if JSON) text of the currently viewed message
   detailsOpen: false,
-  detailsLoadedForTopic: null
+  detailsLoadedForTopic: null,
+  adminUnlocked: false // hardcoded-password gate for Purge/Delete, unlocked for the rest of this page load
 };
+
+// Temporary hardcoded gate for Purge messages / Delete topic - client-side
+// only, revisit with a real access-control mechanism later.
+const ADMIN_PASSWORD = 'Admin@Kafka01';
 
 const el = (id) => document.getElementById(id);
 
@@ -393,8 +398,11 @@ function resetMessagePane() {
   el('refresh-messages').disabled = true;
   el('view-details-btn').disabled = true;
   el('publish-to-topic-btn').disabled = true;
+  el('admin-actions-btn').disabled = true;
   el('purge-topic-btn').disabled = true;
+  el('purge-topic-btn').hidden = true;
   el('delete-topic-btn').disabled = true;
+  el('delete-topic-btn').hidden = true;
   el('load-older-btn').hidden = true;
 }
 
@@ -412,22 +420,32 @@ async function selectTopic(topic) {
   setFiltersEnabled(false);
   el('view-details-btn').disabled = true;
   el('publish-to-topic-btn').disabled = true;
+  el('admin-actions-btn').disabled = true;
   el('purge-topic-btn').disabled = true;
+  el('purge-topic-btn').hidden = true;
   el('delete-topic-btn').disabled = true;
+  el('delete-topic-btn').hidden = true;
 
   await loadMessages(topic);
 }
 
 // Purge/delete stay disabled for internal topics (__consumer_offsets etc.)
 // even once everything else has finished loading - the server rejects
-// those requests anyway, so this just keeps the buttons honest.
+// those requests anyway, so this just keeps the buttons honest. They also
+// stay hidden behind the admin-actions lock icon until unlocked this page load.
 function setDestructiveButtonsEnabled(topic) {
   const allowed = !isInternalTopic(topic);
-  el('purge-topic-btn').disabled = !allowed;
-  el('delete-topic-btn').disabled = !allowed;
   const reason = allowed ? '' : 'Internal Kafka topics can’t be purged or deleted here.';
-  el('purge-topic-btn').title = reason;
-  el('delete-topic-btn').title = reason;
+  el('admin-actions-btn').disabled = !allowed;
+  el('admin-actions-btn').title = allowed ? 'Admin actions (Purge/Delete)' : reason;
+
+  const reveal = allowed && state.adminUnlocked;
+  el('purge-topic-btn').hidden = !reveal;
+  el('delete-topic-btn').hidden = !reveal;
+  el('purge-topic-btn').disabled = !reveal;
+  el('delete-topic-btn').disabled = !reveal;
+  el('purge-topic-btn').title = reveal ? '' : reason;
+  el('delete-topic-btn').title = reveal ? '' : reason;
 }
 
 // Loads (replacing whatever's currently shown) the newest messages for a
@@ -685,6 +703,65 @@ function confirmByTypingTopicName(topic, title, message) {
     modal.addEventListener('click', onOverlayClick);
   });
 }
+
+// Opens a modal asking for the (hardcoded, temporary) admin password,
+// resolving true/false. Not real access control - just a click-guard while
+// a proper mechanism is worked out later.
+function promptAdminPassword() {
+  return new Promise((resolve) => {
+    const modal = el('admin-password-modal');
+    const input = el('admin-password-input');
+    const submitBtn = el('admin-password-submit');
+    const cancelBtn = el('admin-password-cancel');
+    const closeBtn = el('admin-password-close');
+    const errorEl = el('admin-password-error');
+
+    input.value = '';
+    errorEl.textContent = '';
+    modal.classList.add('open');
+    input.focus();
+
+    function cleanup(result) {
+      modal.classList.remove('open');
+      input.removeEventListener('keydown', onKeydown);
+      submitBtn.removeEventListener('click', onSubmit);
+      cancelBtn.removeEventListener('click', onCancel);
+      closeBtn.removeEventListener('click', onCancel);
+      modal.removeEventListener('click', onOverlayClick);
+      resolve(result);
+    }
+
+    function onSubmit() {
+      if (input.value === ADMIN_PASSWORD) {
+        cleanup(true);
+      } else {
+        errorEl.textContent = 'Incorrect password';
+        input.value = '';
+        input.focus();
+      }
+    }
+    function onCancel() { cleanup(false); }
+    function onOverlayClick(e) { if (e.target === modal) cleanup(false); }
+    function onKeydown(e) {
+      if (e.key === 'Enter') onSubmit();
+      if (e.key === 'Escape') cleanup(false);
+    }
+
+    input.addEventListener('keydown', onKeydown);
+    submitBtn.addEventListener('click', onSubmit);
+    cancelBtn.addEventListener('click', onCancel);
+    closeBtn.addEventListener('click', onCancel);
+    modal.addEventListener('click', onOverlayClick);
+  });
+}
+
+el('admin-actions-btn').addEventListener('click', async () => {
+  if (state.adminUnlocked) return;
+  const unlocked = await promptAdminPassword();
+  if (!unlocked) return;
+  state.adminUnlocked = true;
+  setDestructiveButtonsEnabled(state.selectedTopic);
+});
 
 // Full-page, non-dismissable overlay - blocks every other control while a
 // purge/delete request is in flight.

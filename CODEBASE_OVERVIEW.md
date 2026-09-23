@@ -18,9 +18,10 @@ The UI is a single page with two tab sections (`public/index.html`), switched cl
 1. **Topics & messages** (default tab)
 2. **Publish**
 
-Plus two modals layered on top of either tab:
+Plus a few modals layered on top of either tab:
 - **Settings modal** (gear icon, top right) — manage Kafka home path & environments
 - **Topic details modal** — opened via "View details" from the Topics page
+- **Admin password modal** — opened by the lock icon next to Purge/Delete when not yet unlocked this page load
 
 ## Features by area
 
@@ -39,7 +40,8 @@ Plus two modals layered on top of either tab:
   - "Publish message" button switches to the Publish page with the selected topic pre-filled and its partition dropdown populated
   - Filters (all client-side over the loaded batch): partition dropdown, key substring, date range, plus the free-text search
   - "Purge messages" deletes all records in every partition (topic/partitions remain); "Delete topic" removes the topic entirely. Both require typing the topic name into a confirmation modal, and both show a blocking full-page overlay (disabling every other control) while the request is in flight
-  - Internal Kafka topics (name starts with `__`, e.g. `__consumer_offsets`) get an "internal" badge in the topic list, and both buttons stay disabled when one is selected - enforced client-side (`isInternalTopic` in app.js) and again server-side (same check in server.js on the delete/purge routes) so it can't be bypassed via a direct API call
+  - Both buttons are hidden behind a lock icon (`admin-actions-btn`) until unlocked with a hardcoded password (`Admin@Kafka01`, `ADMIN_PASSWORD` in app.js) - client-side only, no server enforcement. This is a placeholder click-guard, not real access control; a proper mechanism is still to be designed. Once unlocked via `promptAdminPassword()`, `state.adminUnlocked` stays true for the rest of the page load (reset on reload)
+  - Internal Kafka topics (name starts with `__`, e.g. `__consumer_offsets`) get an "internal" badge in the topic list, and both the lock icon and the buttons stay disabled when one is selected - enforced client-side (`isInternalTopic` in app.js) and again server-side (same check in server.js on the delete/purge routes) so it can't be bypassed via a direct API call
 - **Message detail pane (right)**: clicking a message in the stream shows its full payload, pretty-printed if it parses as JSON. A toolbar above it has a search box that highlights matching text within the payload (client-side, `<mark>` wrapping - doesn't touch the underlying content), and a copy button that copies the full displayed payload to the clipboard (Clipboard API with an `execCommand('copy')` fallback for contexts where it's unavailable)
 
 ### Publish page
