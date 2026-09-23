@@ -9,9 +9,7 @@ const state = {
   selectedMessageIndex: null,
   selectedMessageValue: null, // raw (pretty-printed if JSON) text of the currently viewed message
   detailsOpen: false,
-  detailsLoadedForTopic: null,
-  adminToken: null, // in-memory only - re-locks on page reload
-  adminTokenExpiresAt: 0
+  detailsLoadedForTopic: null
 };
 
 const el = (id) => document.getElementById(id);
@@ -146,18 +144,6 @@ async function loadConfig() {
   renderEnvSelect();
   renderEnvList();
   el('kafka-home-input').value = state.config.kafkaHome;
-  renderAdminPasscodeStatus();
-}
-
-function renderAdminPasscodeStatus() {
-  const configured = state.config.adminPasscodeConfigured;
-  el('admin-passcode-status').textContent = configured
-    ? 'An admin passcode is set. Purge messages / Delete topic require it.'
-    : 'No admin passcode set yet - Purge messages / Delete topic are locked for everyone until you set one.';
-  el('admin-passcode-current').hidden = !configured;
-  el('admin-passcode-current').value = '';
-  el('admin-passcode-new').value = '';
-  el('admin-passcode-error').textContent = '';
 }
 
 function renderEnvSelect() {
@@ -218,30 +204,6 @@ el('save-kafka-home').addEventListener('click', async () => {
     toast('Kafka home saved');
   } catch (err) {
     toast(err.message, true);
-  }
-});
-
-el('save-admin-passcode').addEventListener('click', async () => {
-  const errorEl = el('admin-passcode-error');
-  errorEl.textContent = '';
-  const newPasscode = el('admin-passcode-new').value;
-  const currentPasscode = el('admin-passcode-current').value;
-
-  try {
-    await api('/api/admin/passcode', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ currentPasscode, newPasscode })
-    });
-    // Changing the passcode invalidates whatever unlock this browser tab
-    // was holding - re-lock so it can't keep using a token issued under
-    // the old passcode.
-    state.adminToken = null;
-    state.adminTokenExpiresAt = 0;
-    await loadConfig();
-    toast('Admin passcode saved');
-  } catch (err) {
-    errorEl.textContent = err.message;
   }
 });
 
@@ -724,84 +686,6 @@ function confirmByTypingTopicName(topic, title, message) {
   });
 }
 
-// ---------- admin unlock (Purge messages / Delete topic) ----------
-
-function hasValidAdminToken() {
-  return !!state.adminToken && Date.now() < state.adminTokenExpiresAt;
-}
-
-// Prompts for the admin passcode via a modal, unlocks with the server, and
-// stores the short-lived token in memory (never persisted). Resolves true
-// once unlocked, false if the user cancels.
-function promptAdminUnlock(message) {
-  return new Promise((resolve) => {
-    const modal = el('admin-unlock-modal');
-    const input = el('admin-unlock-input');
-    const confirmBtn = el('admin-unlock-confirm');
-    const cancelBtn = el('admin-unlock-cancel');
-    const closeBtn = el('admin-unlock-close');
-    const errorEl = el('admin-unlock-error');
-
-    el('admin-unlock-message').textContent = message;
-    input.value = '';
-    errorEl.textContent = '';
-    modal.classList.add('open');
-    input.focus();
-
-    function cleanup(result) {
-      modal.classList.remove('open');
-      input.removeEventListener('keydown', onKeydown);
-      confirmBtn.removeEventListener('click', onConfirm);
-      cancelBtn.removeEventListener('click', onCancel);
-      closeBtn.removeEventListener('click', onCancel);
-      modal.removeEventListener('click', onOverlayClick);
-      resolve(result);
-    }
-
-    async function onConfirm() {
-      errorEl.textContent = '';
-      try {
-        const data = await api('/api/admin/unlock', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ passcode: input.value })
-        });
-        state.adminToken = data.token;
-        state.adminTokenExpiresAt = Date.now() + data.expiresInMs;
-        cleanup(true);
-      } catch (err) {
-        errorEl.textContent = err.message;
-        input.value = '';
-        input.focus();
-      }
-    }
-    function onCancel() { cleanup(false); }
-    function onOverlayClick(e) { if (e.target === modal) cleanup(false); }
-    function onKeydown(e) {
-      if (e.key === 'Enter') onConfirm();
-      if (e.key === 'Escape') cleanup(false);
-    }
-
-    input.addEventListener('keydown', onKeydown);
-    confirmBtn.addEventListener('click', onConfirm);
-    cancelBtn.addEventListener('click', onCancel);
-    closeBtn.addEventListener('click', onCancel);
-    modal.addEventListener('click', onOverlayClick);
-  });
-}
-
-// Gate for Purge messages / Delete topic. Returns true once the caller is
-// clear to proceed (already unlocked, or just unlocked); false if the user
-// cancels or no passcode has been configured yet.
-async function ensureAdminUnlocked(actionLabel) {
-  if (hasValidAdminToken()) return true;
-  if (!state.config.adminPasscodeConfigured) {
-    toast('No admin passcode is set up yet - set one in Settings first.', true);
-    return false;
-  }
-  return promptAdminUnlock(`Enter the admin passcode to ${actionLabel}.`);
-}
-
 // Full-page, non-dismissable overlay - blocks every other control while a
 // purge/delete request is in flight.
 function showBusy(message) {
@@ -825,8 +709,6 @@ el('purge-topic-btn').addEventListener('click', async () => {
   const topic = state.selectedTopic;
   if (!topic) return;
 
-  if (!(await ensureAdminUnlocked(`purge messages in "${topic}"`))) return;
-
   const confirmed = await confirmByTypingTopicName(
     topic,
     'Purge all messages',
@@ -838,7 +720,7 @@ el('purge-topic-btn').addEventListener('click', async () => {
   try {
     const data = await api(
       `/api/topics/${encodeURIComponent(topic)}/purge?env=${encodeURIComponent(state.currentEnv)}`,
-      { method: 'POST', headers: { 'X-Admin-Token': state.adminToken } }
+      { method: 'POST' }
     );
     toast(`Purged ${data.partitionCount} partition(s) on ${topic}`);
     if (data.warning) toast(data.warning, true);
@@ -854,8 +736,6 @@ el('delete-topic-btn').addEventListener('click', async () => {
   const topic = state.selectedTopic;
   if (!topic) return;
 
-  if (!(await ensureAdminUnlocked(`delete topic "${topic}"`))) return;
-
   const confirmed = await confirmByTypingTopicName(
     topic,
     'Delete topic',
@@ -867,7 +747,7 @@ el('delete-topic-btn').addEventListener('click', async () => {
   try {
     await api(
       `/api/topics/${encodeURIComponent(topic)}?env=${encodeURIComponent(state.currentEnv)}`,
-      { method: 'DELETE', headers: { 'X-Admin-Token': state.adminToken } }
+      { method: 'DELETE' }
     );
     toast(`Deleted topic ${topic}`);
     resetMessagePane();

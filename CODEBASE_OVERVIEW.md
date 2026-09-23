@@ -18,10 +18,9 @@ The UI is a single page with two tab sections (`public/index.html`), switched cl
 1. **Topics & messages** (default tab)
 2. **Publish**
 
-Plus a few modals layered on top of either tab:
-- **Settings modal** (gear icon, top right) — manage Kafka home path, environments, and the admin passcode
+Plus two modals layered on top of either tab:
+- **Settings modal** (gear icon, top right) — manage Kafka home path & environments
 - **Topic details modal** — opened via "View details" from the Topics page
-- **Admin unlock modal** — opened by Purge messages / Delete topic when not already unlocked in this session
 
 ## Features by area
 
@@ -39,7 +38,7 @@ Plus a few modals layered on top of either tab:
   - "View details" button opens the Topic Details modal
   - "Publish message" button switches to the Publish page with the selected topic pre-filled and its partition dropdown populated
   - Filters (all client-side over the loaded batch): partition dropdown, key substring, date range, plus the free-text search
-  - "Purge messages" deletes all records in every partition (topic/partitions remain); "Delete topic" removes the topic entirely. Both require an admin unlock (see below) followed by typing the topic name into a confirmation modal, and both show a blocking full-page overlay (disabling every other control) while the request is in flight
+  - "Purge messages" deletes all records in every partition (topic/partitions remain); "Delete topic" removes the topic entirely. Both require typing the topic name into a confirmation modal, and both show a blocking full-page overlay (disabling every other control) while the request is in flight
   - Internal Kafka topics (name starts with `__`, e.g. `__consumer_offsets`) get an "internal" badge in the topic list, and both buttons stay disabled when one is selected - enforced client-side (`isInternalTopic` in app.js) and again server-side (same check in server.js on the delete/purge routes) so it can't be bypassed via a direct API call
 - **Message detail pane (right)**: clicking a message in the stream shows its full payload, pretty-printed if it parses as JSON. A toolbar above it has a search box that highlights matching text within the payload (client-side, `<mark>` wrapping - doesn't touch the underlying content), and a copy button that copies the full displayed payload to the clipboard (Clipboard API with an `execCommand('copy')` fallback for contexts where it's unavailable)
 
@@ -54,16 +53,6 @@ Plus a few modals layered on top of either tab:
 ### Settings modal
 - Edit `kafkaHome` path (persisted to `config.json`)
 - List/add/remove named environments (name + comma-separated bootstrap servers)
-- Set/change the admin passcode that gates Purge messages / Delete topic (see "Admin gate" below)
-
-### Admin gate (Purge messages / Delete topic)
-Not everyone using this tool should be able to purge/delete on a click, so both actions require an admin passcode:
-- `config.json` stores only `adminPasscodeHash` (SHA-256 of the passcode) - never the plaintext, and `GET /api/config` strips even the hash, returning just a boolean `adminPasscodeConfigured`
-- `POST /api/admin/unlock` checks a submitted passcode against the hash and, on success, issues a random token held server-side in an in-memory `Map` (`adminTokens`) with a 20-minute expiry - nothing is persisted across a server restart
-- The client keeps that token only in memory (`state.adminToken`, not `localStorage`) and sends it as `X-Admin-Token` on Purge/Delete requests; reloading the page re-locks
-- `POST /api/topics/:topic/purge` and `DELETE /api/topics/:topic` both call `requireAdmin(req, res)` (after the internal-topic check) and reject with 403 if the token is missing/expired/invalid - so this can't be bypassed by calling the API directly, only by knowing the passcode
-- `POST /api/admin/passcode` sets/changes the passcode; if one is already set, the current passcode must be supplied to change it
-- If no passcode has ever been configured, Purge/Delete are locked for everyone (`ensureAdminUnlocked` in app.js short-circuits with a toast pointing at Settings) rather than defaulting to open
 
 ### Topic Details modal
 Populated by `GET /api/topics/:topic/details`, shows:
@@ -76,16 +65,14 @@ Populated by `GET /api/topics/:topic/details`, shows:
 ## Backend API (server.js)
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/config` | Return current config (kafkaHome + environments + `adminPasscodeConfigured` boolean - never the hash itself) |
+| GET | `/api/config` | Return current config (kafkaHome + environments) |
 | POST | `/api/config/kafka-home` | Update kafkaHome path |
 | POST | `/api/environments` | Add or update an environment |
 | DELETE | `/api/environments/:name` | Remove an environment |
-| POST | `/api/admin/unlock` | Check a passcode against `adminPasscodeHash`; on success issues a 20-minute `X-Admin-Token` for Purge/Delete |
-| POST | `/api/admin/passcode` | Set/change the admin passcode (requires the current one if one is already set) |
 | GET | `/api/topics?env=` | List topics (`kafka-topics.sh --list`) |
 | POST | `/api/topics` | Create a topic with explicit partitions/replication factor (`kafka-topics.sh --create`) |
-| DELETE | `/api/topics/:topic?env=` | Delete a topic entirely (rejects internal topics; requires a valid `X-Admin-Token` header) |
-| POST | `/api/topics/:topic/purge?env=` | Delete all records in every partition (`kafka-delete-records.sh`); rejects internal topics; requires a valid `X-Admin-Token` header |
+| DELETE | `/api/topics/:topic?env=` | Delete a topic entirely (rejects internal topics, name starting with `__`) |
+| POST | `/api/topics/:topic/purge?env=` | Delete all records in every partition (`kafka-delete-records.sh`); rejects internal topics |
 | GET | `/api/topics/:topic/partitions?env=` | List a topic's partitions (used by Publish's partition picker) |
 | GET | `/api/messages?env=&topic=&limit=&since=&cursor=` | Fetch messages across all partitions, newest first. `cursor` (JSON `{partition: exclusiveEndOffset}`, from a prior response's `nextCursor`) continues an older page for "Load older messages"; response includes `nextCursor` and `hasMore` for pagination. `since` (epoch ms) also accepts a time-bounded load via `GetOffsetShell --time` (capped at 2,000 messages), though no UI control currently calls it |
 | GET | `/api/topics/:topic/details?env=` | Partition info, offsets, consumer groups, config |

@@ -825,20 +825,6 @@ body.resizing-pane {
 .add-env-row input:first-child { flex: 0 0 40%; }
 .add-env-row input:last-child { flex: 1; }
 
-.admin-passcode-row {
-  display: flex;
-  gap: 8px;
-}
-
-.admin-passcode-row input { flex: 1; }
-
-.field-error {
-  color: var(--danger);
-  font-size: 12.5px;
-  margin: 6px 0 0;
-  min-height: 15px;
-}
-
 /* ---------- toast ---------- */
 
 .toast {

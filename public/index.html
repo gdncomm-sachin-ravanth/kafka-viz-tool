@@ -200,39 +200,6 @@
           <input id="new-env-servers" type="text" placeholder="Bootstrap servers, comma separated" />
           <button id="add-env" class="btn btn-primary">Add</button>
         </div>
-
-        <hr />
-
-        <label class="field-label">Admin passcode (required to Purge/Delete)</label>
-        <p id="admin-passcode-status" class="muted"></p>
-        <div class="admin-passcode-row">
-          <input id="admin-passcode-current" type="password" placeholder="Current passcode" autocomplete="off" hidden />
-          <input id="admin-passcode-new" type="password" placeholder="New passcode (min. 4 characters)" autocomplete="off" />
-          <button id="save-admin-passcode" class="btn">Save</button>
-        </div>
-        <p id="admin-passcode-error" class="field-error"></p>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===================== ADMIN UNLOCK MODAL ===================== -->
-  <div id="admin-unlock-modal" class="modal-overlay">
-    <div class="modal">
-      <div class="modal-header">
-        <h3>Admin unlock required</h3>
-        <button id="admin-unlock-close" class="icon-btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <p id="admin-unlock-message" class="muted"></p>
-        <label class="field-label" for="admin-unlock-input">Admin passcode</label>
-        <input id="admin-unlock-input" type="password" autocomplete="off" />
-        <p id="admin-unlock-error" class="field-error"></p>
-      </div>
-      <div class="modal-footer">
-        <button id="admin-unlock-cancel" class="btn">Cancel</button>
-        <button id="admin-unlock-confirm" class="btn btn-primary">Unlock</button>
       </div>
     </div>
   </div>
