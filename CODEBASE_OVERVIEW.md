@@ -81,14 +81,14 @@ Populated by `GET /api/topics/:topic/details`, shows:
 | POST | `/api/publish` | Publish one JSON message to a topic |
 
 ### Message-loading algorithm
-1. `GetOffsetShell` fetches latest offset per partition
+1. `GetOffsetShell` fetches both the latest and earliest available offset per partition (log retention can delete old segments, so a partition's earliest offset isn't always 0)
 2. For each partition, the fetch range's end (`rangeEnd`) is the partition's latest offset by default, or the offset given in `cursor` for that partition when paging backward
-3. The range's start offset is either:
-   - `rangeEnd - limit` for a plain count-based/pagination load, or
-   - the offset returned by `GetOffsetShell --time <since>` for a time-bounded load (a direct index lookup, not a scan) — still floored at `rangeEnd - limit` as a per-partition safety cap
+3. The range's start offset is the *largest* of:
+   - the partition's earliest available offset (a floor - asking `kafka-console-consumer.sh` for an offset older than this doesn't get clamped up automatically, it just times out with zero messages)
+   - `rangeEnd - limit` for a plain count-based/pagination load, or the offset returned by `GetOffsetShell --time <since>` for a time-bounded load (a direct index lookup, not a scan)
 4. Spawn one `kafka-console-consumer.sh` per partition (`--offset start --max-messages N --timeout-ms`)
 5. Merge all partitions' results, sort by timestamp descending, trim to `limit`
-6. Return each partition's start offset as `nextCursor`, for a subsequent "load older" request to continue from; `hasMore` is true if any partition's start offset is still above 0
+6. Return each partition's start offset as `nextCursor`, for a subsequent "load older" request to continue from; `hasMore` is true if any partition's start offset is still above its earliest available offset
 
 Each CLI invocation pays ~1-3s JVM startup cost, so topics with many partitions take longer to load — this is a known/documented limitation.
 

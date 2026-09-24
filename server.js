@@ -316,7 +316,11 @@ async function getOffsetsAtTime(cfg, env, topic, time) {
     throw new Error(stderr || 'Failed to fetch partition offsets');
   }
 
-  // lines look like: "<topic>:<partition>:<offset>"
+  // lines look like: "<topic>:<partition>:<offset>". Some Kafka versions'
+  // GetOffsetShell match --topic as a regex rather than an exact name, which
+  // could return another topic's lines too when one topic's name is a
+  // substring of another's (e.g. "orders" vs "orders-archive") - so filter
+  // to the exact topic we asked about rather than trusting every line back.
   return stdout
     .split('\n')
     .map((l) => l.trim())
@@ -325,9 +329,10 @@ async function getOffsetsAtTime(cfg, env, topic, time) {
       const parts = line.split(':');
       const offset = parts.pop();
       const partition = parts.pop();
-      return { partition: Number(partition), offset: Number(offset) };
+      const lineTopic = parts.join(':');
+      return { topic: lineTopic, partition: Number(partition), offset: Number(offset) };
     })
-    .filter((p) => Number.isFinite(p.partition) && Number.isFinite(p.offset));
+    .filter((p) => p.topic === topic && Number.isFinite(p.partition) && Number.isFinite(p.offset));
 }
 
 async function getLatestOffsets(cfg, env, topic) {
@@ -417,7 +422,11 @@ app.get('/api/messages', async (req, res) => {
   if (!topic) return res.status(400).json({ error: 'topic is required' });
 
   try {
-    const partitions = await getLatestOffsets(cfg, env, topic);
+    const [partitions, earliestOffsets] = await Promise.all([
+      getLatestOffsets(cfg, env, topic),
+      getOffsetsAtTime(cfg, env, topic, -2)
+    ]);
+    const earliestByPartition = new Map(earliestOffsets.map((o) => [o.partition, o.offset]));
 
     // "Since" mode looks up each partition's start offset directly via
     // GetOffsetShell's time index (a single fast lookup, not a scan), then
@@ -434,10 +443,16 @@ app.get('/api/messages', async (req, res) => {
           : p.latestOffset;
 
         const flooredStart = startOffsetByPartition ? (startOffsetByPartition.get(p.partition) ?? rangeEnd) : 0;
+        // Log retention can delete old segments, moving a partition's
+        // earliest available offset above 0 (or above where a fixed-size
+        // page would otherwise start). Asking the consumer for an offset
+        // before that point doesn't get clamped up for us - it just hangs
+        // until --timeout-ms and returns nothing - so clamp up to it here.
+        const earliestAvailable = earliestByPartition.get(p.partition) ?? 0;
         // Still cap how far back a single partition fetches per page, so a
         // topic with one very active partition can't blow the response
         // budget (or, since mode, the "since" timestamp) on its own.
-        const startOffset = Math.max(0, flooredStart, rangeEnd - limit);
+        const startOffset = Math.max(0, earliestAvailable, flooredStart, rangeEnd - limit);
 
         nextCursor[p.partition] = startOffset; // where the *next* older page should end
         return fetchMessagesForPartition(cfg, env, topic, p.partition, startOffset, rangeEnd);
@@ -453,8 +468,13 @@ app.get('/api/messages', async (req, res) => {
       : null;
 
     // More is available if any partition still has offsets before where
-    // this page's fetch stopped.
-    const hasMore = partitions.some((p) => (nextCursor[p.partition] ?? 0) > 0);
+    // this page's fetch stopped (i.e. above its earliest available offset -
+    // the cursor itself can be > 0 while already at that partition's start).
+    const hasMore = partitions.some((p) => {
+      const cursorValue = nextCursor[p.partition] ?? 0;
+      const earliestAvailable = earliestByPartition.get(p.partition) ?? 0;
+      return cursorValue > earliestAvailable;
+    });
 
     res.json({
       messages,
