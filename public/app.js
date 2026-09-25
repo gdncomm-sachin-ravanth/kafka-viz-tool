@@ -846,6 +846,7 @@ el('view-details-btn').addEventListener('click', async () => {
   el('topic-details-modal-title').textContent = `Topic details — ${topic}`;
   el('topic-details-content').innerHTML = '<div class="loading-hint"><span class="spinner"></span> Loading topic details…</div>';
   el('topic-details-modal').classList.add('open');
+  resetHistogram();
 
   try {
     const data = await api(
@@ -923,6 +924,91 @@ function renderTopicDetails(data) {
 function statCard(value, label) {
   return `<div class="details-stat"><div class="stat-value">${value ?? '-'}</div><div class="stat-label">${label}</div></div>`;
 }
+
+// ---------- message volume histogram (topic details modal) ----------
+
+function toDateInputValue(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+// Defaults the range to yesterday through today (inclusive, matching the
+// day-granularity date pickers used elsewhere in the app) and clears any
+// previously rendered chart - called each time the details modal is
+// (re)opened so a stale chart from a different topic never lingers.
+function resetHistogram() {
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  el('histogram-to').value = toDateInputValue(now);
+  el('histogram-from').value = toDateInputValue(yesterday);
+  el('histogram-interval').value = '3600000';
+  el('histogram-chart-wrap').innerHTML = '<p class="muted">Pick a date range and interval, then click Load to see message volume over time.</p>';
+}
+
+function formatBucketLabel(ms, intervalMs) {
+  const d = new Date(ms);
+  if (intervalMs >= 86400000) return d.toLocaleDateString();
+  return d.toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderHistogram(data, intervalMs) {
+  const wrap = el('histogram-chart-wrap');
+  const { buckets, totalMessages } = data;
+
+  if (!buckets.length || totalMessages === 0) {
+    wrap.innerHTML = '<p class="muted">No messages in this date range.</p>';
+    return;
+  }
+
+  const maxCount = Math.max(...buckets.map((b) => b.count), 1);
+  const bars = buckets.map((b) => {
+    const heightPct = Math.max((b.count / maxCount) * 100, b.count > 0 ? 2 : 0);
+    const title = `${formatBucketLabel(b.start, intervalMs)} – ${formatBucketLabel(b.end, intervalMs)}: ${b.count} message(s)`;
+    return `<div class="histogram-bar" style="height:${heightPct}%" title="${escapeHtml(title)}"></div>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="histogram-chart">${bars}</div>
+    <div class="histogram-axis">
+      <span>${escapeHtml(formatBucketLabel(buckets[0].start, intervalMs))}</span>
+      <span>${escapeHtml(formatBucketLabel(buckets[buckets.length - 1].end, intervalMs))}</span>
+    </div>
+    <div class="histogram-total">${totalMessages} message(s) across ${buckets.length} bucket(s)</div>
+  `;
+}
+
+el('load-histogram-btn').addEventListener('click', async () => {
+  const topic = state.selectedTopic;
+  if (!topic) return;
+
+  const fromStr = el('histogram-from').value;
+  const toStr = el('histogram-to').value;
+  const intervalMs = Number(el('histogram-interval').value);
+  if (!fromStr || !toStr) {
+    toast('Pick both a from and to date', true);
+    return;
+  }
+
+  const fromMs = new Date(fromStr).getTime();
+  // "To" is a calendar day - include the whole day by treating it as
+  // exclusive midnight at the start of the following day.
+  const toMs = new Date(toStr).getTime() + 24 * 60 * 60 * 1000;
+  if (fromMs >= toMs) {
+    toast('"From" must be before "To"', true);
+    return;
+  }
+
+  const wrap = el('histogram-chart-wrap');
+  wrap.innerHTML = '<div class="loading-hint"><span class="spinner"></span> Loading message volume…</div>';
+
+  try {
+    const data = await api(
+      `/api/topics/${encodeURIComponent(topic)}/message-counts?env=${encodeURIComponent(state.currentEnv)}&from=${fromMs}&to=${toMs}&interval=${intervalMs}`
+    );
+    renderHistogram(data, intervalMs);
+  } catch (err) {
+    wrap.innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
+  }
+});
 
 // ---------- publish ----------
 

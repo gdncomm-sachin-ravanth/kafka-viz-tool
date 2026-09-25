@@ -187,7 +187,14 @@ This is where you browse what's already in Kafka.
   whole payload to your clipboard exactly as shown.
 - **View details** opens a popup showing the topic's partitions, replica
   info, message counts, and which consumer groups are reading from it and
-  how far behind they are.
+  how far behind they are. It also has a **Message volume** chart further
+  down — pick a from/to date and how coarse a time bucket you want (15
+  minutes up to weekly), click **Load**, and it draws a bar per bucket
+  showing how many messages landed in that window, so you can spot when a
+  topic went quiet or spiked. Wider ranges with fine-grained buckets take
+  longer to load (each bucket needs its own lookup against Kafka) and very
+  wide combinations are rejected with a message asking you to pick a
+  coarser interval or a narrower range.
 - **Publish message** takes you straight to the Publish page with this
   topic's name already filled in and its partitions ready to pick from — a
   shortcut so you don't have to retype the topic name.

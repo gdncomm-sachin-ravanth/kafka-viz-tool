@@ -218,6 +218,26 @@
       </div>
       <div class="modal-body">
         <div id="topic-details-content"></div>
+
+        <div class="details-section-title">Message volume</div>
+        <div class="histogram-controls">
+          <label class="field-label" for="histogram-from">From</label>
+          <input id="histogram-from" type="date" />
+          <label class="field-label" for="histogram-to">To</label>
+          <input id="histogram-to" type="date" />
+          <label class="field-label" for="histogram-interval">Interval</label>
+          <select id="histogram-interval">
+            <option value="900000">15 minutes</option>
+            <option value="3600000" selected>Hourly</option>
+            <option value="21600000">6 hours</option>
+            <option value="86400000">Daily</option>
+            <option value="604800000">Weekly</option>
+          </select>
+          <button id="load-histogram-btn" class="btn">Load</button>
+        </div>
+        <div id="histogram-chart-wrap">
+          <p class="muted">Pick a date range and interval, then click Load to see message volume over time.</p>
+        </div>
       </div>
     </div>
   </div>

@@ -364,7 +364,7 @@ body.resizing-pane {
 }
 
 .modal-wide {
-  width: 760px;
+  width: 960px;
 }
 
 /* ---- topic details (rendered inside modal-body) ---- */
@@ -446,6 +446,67 @@ body.resizing-pane {
 }
 
 .config-kv span { color: var(--text); }
+
+.histogram-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.histogram-controls .field-label {
+  margin: 0;
+}
+
+.histogram-controls input,
+.histogram-controls select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 9px;
+}
+
+#histogram-chart-wrap {
+  min-height: 180px;
+}
+
+.histogram-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 180px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 2px;
+}
+
+.histogram-bar {
+  flex: 1;
+  min-width: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  cursor: default;
+  transition: background 0.1s;
+}
+
+.histogram-bar:hover {
+  background: var(--accent-dim);
+}
+
+.histogram-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  font-family: var(--mono);
+}
+
+.histogram-total {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
 
 /* ---- lower split: message list + message detail ---- */
 

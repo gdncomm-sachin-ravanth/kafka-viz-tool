@@ -63,6 +63,7 @@ Populated by `GET /api/topics/:topic/details`, shows:
 - Total message count across all partitions
 - Consumer groups reading this topic: group ID, active consumer IDs, per-partition current offset/log-end-offset/lag, total lag
 - Topic-level dynamic config overrides (from `kafka-configs.sh --describe`)
+- **Message volume**: a from/to date range plus an interval (15 min – weekly), fetched from `GET /api/topics/:topic/message-counts` and rendered as a plain CSS/HTML bar chart (`renderHistogram` in app.js) - no charting library. Each bar is one bucket's message count; hovering shows its exact range and count in a native tooltip (the `title` attribute)
 
 ## Backend API (server.js)
 | Method | Path | Purpose |
@@ -78,6 +79,7 @@ Populated by `GET /api/topics/:topic/details`, shows:
 | GET | `/api/topics/:topic/partitions?env=` | List a topic's partitions (used by Publish's partition picker) |
 | GET | `/api/messages?env=&topic=&limit=&since=&cursor=` | Fetch messages across all partitions, newest first. `cursor` (JSON `{partition: exclusiveEndOffset}`, from a prior response's `nextCursor`) continues an older page for "Load older messages"; response includes `nextCursor` and `hasMore` for pagination. `since` (epoch ms) also accepts a time-bounded load via `GetOffsetShell --time` (capped at 2,000 messages), though no UI control currently calls it |
 | GET | `/api/topics/:topic/details?env=` | Partition info, offsets, consumer groups, config |
+| GET | `/api/topics/:topic/message-counts?env=&from=&to=&interval=` | Message-count histogram between `from`/`to` (epoch ms) bucketed into `interval`-ms steps; rejects requests needing more than 200 buckets |
 | POST | `/api/publish` | Publish one JSON message to a topic |
 
 ### Message-loading algorithm
@@ -91,6 +93,13 @@ Populated by `GET /api/topics/:topic/details`, shows:
 6. Return each partition's start offset as `nextCursor`, for a subsequent "load older" request to continue from; `hasMore` is true if any partition's start offset is still above its earliest available offset
 
 Each CLI invocation pays ~1-3s JVM startup cost, so topics with many partitions take longer to load — this is a known/documented limitation.
+
+### Message-count histogram algorithm
+1. Split `[from, to)` into `interval`-sized buckets (the last one clamped to `to`)
+2. Look up every partition's offset at each bucket boundary via `GetOffsetShell --time <boundary>` - one CLI call per boundary, run with bounded concurrency (`mapWithConcurrency`, `HISTOGRAM_LOOKUP_CONCURRENCY`) rather than all at once, since dozens of concurrent JVM spawns against the broker can start timing calls out
+3. A partition missing from a boundary's output (no message at/after that time) is treated as having reached its overall latest offset - i.e. nothing left to count from there on
+4. Each bucket's count is the sum, across partitions, of the offset delta between its two boundaries
+5. `MAX_HISTOGRAM_BUCKETS` (200) caps how many boundary lookups a single request can trigger; a request that would exceed it is rejected with a 400 asking for a coarser interval or narrower range
 
 ## Known limitations (per README)
 - No persistent consumer groups, no schema registry/Avro support
