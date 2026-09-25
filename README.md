@@ -189,9 +189,11 @@ This is where you browse what's already in Kafka.
   info, message counts, and which consumer groups are reading from it and
   how far behind they are. It also has a **Message volume** chart further
   down — pick a from/to date and how coarse a time bucket you want (15
-  minutes up to weekly), click **Load**, and it draws a bar per bucket
-  showing how many messages landed in that window, so you can spot when a
-  topic went quiet or spiked. Wider ranges with fine-grained buckets take
+  minutes up to weekly), click **Load**, and it draws a line chart (with a
+  time axis, a message-count axis, and a legend) of how many messages
+  landed in each bucket, so you can spot when a topic went quiet or
+  spiked — hover any point for its exact range and count. Wider ranges
+  with fine-grained buckets take
   longer to load (each bucket needs its own lookup against Kafka) and very
   wide combinations are rejected with a message asking you to pick a
   coarser interval or a narrower range.

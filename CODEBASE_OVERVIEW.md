@@ -63,7 +63,7 @@ Populated by `GET /api/topics/:topic/details`, shows:
 - Total message count across all partitions
 - Consumer groups reading this topic: group ID, active consumer IDs, per-partition current offset/log-end-offset/lag, total lag
 - Topic-level dynamic config overrides (from `kafka-configs.sh --describe`)
-- **Message volume**: a from/to date range plus an interval (15 min – weekly), fetched from `GET /api/topics/:topic/message-counts` and rendered as a plain CSS/HTML bar chart (`renderHistogram` in app.js) - no charting library. Each bar is one bucket's message count; hovering shows its exact range and count in a native tooltip (the `title` attribute)
+- **Message volume**: a from/to date range plus an interval (15 min – weekly), fetched from `GET /api/topics/:topic/message-counts` and rendered as a hand-built inline-SVG line chart (`renderHistogram` in app.js) - no charting library. It has a real X/Y axis (time / message count) with gridlines and tick labels, a legend, and an area fill under the line; each point's exact bucket range and count show in a native tooltip on hover (an SVG `<title>`). The modal (`.modal-wide`) is widened to 1200px to give the chart room
 
 ## Backend API (server.js)
 | Method | Path | Purpose |

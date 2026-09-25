@@ -950,6 +950,15 @@ function formatBucketLabel(ms, intervalMs) {
   return d.toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+// "Nice" round numbers for Y-axis ticks (1/2/5 * 10^n) rather than raw
+// fractions of the max, so the axis reads like a normal chart's.
+function niceStep(roughStep) {
+  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep || 1)));
+  const residual = roughStep / magnitude;
+  const niceResidual = residual >= 5 ? 10 : residual >= 2 ? 5 : residual >= 1 ? 2 : 1;
+  return niceResidual * magnitude;
+}
+
 function renderHistogram(data, intervalMs) {
   const wrap = el('histogram-chart-wrap');
   const { buckets, totalMessages } = data;
@@ -959,19 +968,77 @@ function renderHistogram(data, intervalMs) {
     return;
   }
 
-  const maxCount = Math.max(...buckets.map((b) => b.count), 1);
-  const bars = buckets.map((b) => {
-    const heightPct = Math.max((b.count / maxCount) * 100, b.count > 0 ? 2 : 0);
-    const title = `${formatBucketLabel(b.start, intervalMs)} – ${formatBucketLabel(b.end, intervalMs)}: ${b.count} message(s)`;
-    return `<div class="histogram-bar" style="height:${heightPct}%" title="${escapeHtml(title)}"></div>`;
+  const width = 1100;
+  const height = 340;
+  const marginLeft = 64;
+  const marginRight = 24;
+  const marginTop = 24;
+  const marginBottom = 56;
+  const plotWidth = width - marginLeft - marginRight;
+  const plotHeight = height - marginTop - marginBottom;
+
+  const rangeStart = buckets[0].start;
+  const rangeEnd = buckets[buckets.length - 1].end;
+  const rangeSpan = Math.max(rangeEnd - rangeStart, 1);
+
+  const rawMax = Math.max(...buckets.map((b) => b.count), 1);
+  const yStep = niceStep(rawMax / 4);
+  const yMax = Math.ceil(rawMax / yStep) * yStep;
+
+  const xForTime = (t) => marginLeft + ((t - rangeStart) / rangeSpan) * plotWidth;
+  const yForCount = (c) => marginTop + plotHeight - (c / yMax) * plotHeight;
+
+  const points = buckets.map((b) => ({
+    x: xForTime((b.start + b.end) / 2),
+    y: yForCount(b.count),
+    bucket: b
+  }));
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(1)},${(marginTop + plotHeight).toFixed(1)} `
+    + `L${points[0].x.toFixed(1)},${(marginTop + plotHeight).toFixed(1)} Z`;
+
+  // Y-axis gridlines + labels, evenly spaced from 0 to yMax.
+  const yTickCount = 4;
+  let yTicksSvg = '';
+  for (let i = 0; i <= yTickCount; i++) {
+    const value = (yMax / yTickCount) * i;
+    const y = yForCount(value);
+    yTicksSvg += `
+      <line class="histogram-gridline" x1="${marginLeft}" y1="${y.toFixed(1)}" x2="${width - marginRight}" y2="${y.toFixed(1)}" />
+      <text class="histogram-axis-label" x="${marginLeft - 10}" y="${y.toFixed(1)}" text-anchor="end" dominant-baseline="middle">${Math.round(value)}</text>
+    `;
+  }
+
+  // X-axis ticks: at most ~7 labels regardless of bucket count, so labels
+  // don't overlap when there are many buckets.
+  const xTickCount = Math.min(7, buckets.length);
+  let xTicksSvg = '';
+  for (let i = 0; i < xTickCount; i++) {
+    const idx = Math.round((i / Math.max(xTickCount - 1, 1)) * (buckets.length - 1));
+    const b = buckets[idx];
+    const x = xForTime((b.start + b.end) / 2);
+    xTicksSvg += `<text class="histogram-axis-label" x="${x.toFixed(1)}" y="${height - marginBottom + 20}" text-anchor="middle">${escapeHtml(formatBucketLabel(b.start, intervalMs))}</text>`;
+  }
+
+  const pointsSvg = points.map((p) => {
+    const title = `${formatBucketLabel(p.bucket.start, intervalMs)} – ${formatBucketLabel(p.bucket.end, intervalMs)}: ${p.bucket.count} message(s)`;
+    return `<circle class="histogram-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3"><title>${escapeHtml(title)}</title></circle>`;
   }).join('');
 
   wrap.innerHTML = `
-    <div class="histogram-chart">${bars}</div>
-    <div class="histogram-axis">
-      <span>${escapeHtml(formatBucketLabel(buckets[0].start, intervalMs))}</span>
-      <span>${escapeHtml(formatBucketLabel(buckets[buckets.length - 1].end, intervalMs))}</span>
-    </div>
+    <div class="histogram-legend"><span class="histogram-legend-swatch"></span>Messages per bucket</div>
+    <svg class="histogram-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+      <line class="histogram-axis-line" x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${marginTop + plotHeight}" />
+      <line class="histogram-axis-line" x1="${marginLeft}" y1="${marginTop + plotHeight}" x2="${width - marginRight}" y2="${marginTop + plotHeight}" />
+      ${yTicksSvg}
+      ${xTicksSvg}
+      <path class="histogram-area" d="${areaPath}" />
+      <path class="histogram-line" d="${linePath}" />
+      ${pointsSvg}
+      <text class="histogram-axis-title" x="${marginLeft + plotWidth / 2}" y="${height - 8}" text-anchor="middle">Time</text>
+      <text class="histogram-axis-title" transform="translate(16, ${marginTop + plotHeight / 2}) rotate(-90)" text-anchor="middle">Message count</text>
+    </svg>
     <div class="histogram-total">${totalMessages} message(s) across ${buckets.length} bucket(s)</div>
   `;
 }
