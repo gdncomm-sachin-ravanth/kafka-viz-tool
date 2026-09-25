@@ -271,6 +271,17 @@ body.resizing-pane {
   min-width: 0;
 }
 
+#messages-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#messages-view[hidden] {
+  display: none;
+}
+
 .topic-details-bar {
   display: flex;
   flex-direction: column;
@@ -363,11 +374,14 @@ body.resizing-pane {
   to { transform: rotate(360deg); }
 }
 
-.modal-wide {
-  width: 1200px;
-}
+/* ---- topic details view (replaces the messages view in the center column) ---- */
 
-/* ---- topic details (rendered inside modal-body) ---- */
+#topic-details-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+}
 
 .details-grid {
   display: grid;

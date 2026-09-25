@@ -18,10 +18,11 @@ The UI is a single page with two tab sections (`public/index.html`), switched cl
 1. **Topics & messages** (default tab)
 2. **Publish**
 
-Plus a few modals layered on top of either tab:
+Plus a couple of modals layered on top of either tab:
 - **Settings modal** (gear icon, top right) — manage Kafka home path & environments
-- **Topic details modal** — opened via "View details" from the Topics page
 - **Admin password modal** — opened by the lock icon next to Purge/Delete when not yet unlocked this page load
+
+Topic details are not a modal - "View details" swaps the whole message list/detail area for the details view in place (see below).
 
 ## Features by area
 
@@ -36,7 +37,7 @@ Plus a few modals layered on top of either tab:
   - Header shows "loaded until" timestamp — the oldest message's timestamp in the loaded batch, so the user knows the time window covered
   - Client-side search box filters the already-loaded messages by key/value text (no re-query)
   - Reload button re-fetches the batch
-  - "View details" button opens the Topic Details modal
+  - "View details" button swaps this whole message list/detail area for the Topic Details view (see below); the button becomes "Back to messages" and toggles back. Switching to a different topic while it's open returns to the messages view automatically
   - "Publish message" button switches to the Publish page with the selected topic pre-filled and its partition dropdown populated
   - Filters (all client-side over the loaded batch): partition dropdown, key substring, date range, plus the free-text search
   - "Purge messages" deletes all records in every partition (topic/partitions remain); "Delete topic" removes the topic entirely. Both require typing the topic name into a confirmation modal, and both show a blocking full-page overlay (disabling every other control) while the request is in flight
@@ -56,14 +57,16 @@ Plus a few modals layered on top of either tab:
 - Edit `kafkaHome` path (persisted to `config.json`)
 - List/add/remove named environments (name + comma-separated bootstrap servers)
 
-### Topic Details modal
+### Topic Details view
+Not a modal - clicking "View details" hides `#messages-view` (the message list + detail split) and shows `#topic-details-view` in the same space within `.center-column`, giving it the full width for the chart. `closeTopicDetailsView()` (in app.js) reverses this and is also called automatically from `selectTopic()`/`resetMessagePane()` so switching topics never leaves a stale details view showing.
+
 Populated by `GET /api/topics/:topic/details`, shows:
 - Partition count & replication factor
 - Per-partition table: leader, replicas, ISR, earliest/latest offset, computed message count
 - Total message count across all partitions
 - Consumer groups reading this topic: group ID, active consumer IDs, per-partition current offset/log-end-offset/lag, total lag
 - Topic-level dynamic config overrides (from `kafka-configs.sh --describe`)
-- **Message volume**: a from/to date range plus an interval (15 min – weekly), fetched from `GET /api/topics/:topic/message-counts` and rendered as a hand-built inline-SVG line chart (`renderHistogram` in app.js) - no charting library. It has a real X/Y axis (time / message count) with gridlines and tick labels, a legend, and an area fill under the line; each point's exact bucket range and count show in a native tooltip on hover (an SVG `<title>`). The modal (`.modal-wide`) is widened to 1200px to give the chart room
+- **Message volume**: a from/to date range plus an interval (15 min – weekly), fetched from `GET /api/topics/:topic/message-counts` and rendered as a hand-built inline-SVG line chart (`renderHistogram` in app.js) - no charting library. It has a real X/Y axis (time / message count) with gridlines and tick labels, a legend, and an area fill under the line; each point's exact bucket range and count show in a native tooltip on hover (an SVG `<title>`)
 
 ## Backend API (server.js)
 | Method | Path | Purpose |

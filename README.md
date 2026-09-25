@@ -185,12 +185,13 @@ This is where you browse what's already in Kafka.
   search box highlights any matching text within that payload (handy for
   finding a specific field on a long message), and the copy icon copies the
   whole payload to your clipboard exactly as shown.
-- **View details** opens a popup showing the topic's partitions, replica
-  info, message counts, and which consumer groups are reading from it and
-  how far behind they are. It also has a **Message volume** chart further
-  down — pick a from/to date and how coarse a time bucket you want (15
-  minutes up to weekly), click **Load**, and it draws a line chart (with a
-  time axis, a message-count axis, and a legend) of how many messages
+- **View details** switches this whole area over to the topic's partitions,
+  replica info, message counts, and which consumer groups are reading from
+  it and how far behind they are — click **Back to messages** (same button)
+  to return to the message list. It also has a **Message volume** chart
+  further down — pick a from/to date and how coarse a time bucket you want
+  (15 minutes up to weekly), click **Load**, and it draws a line chart (with
+  a time axis, a message-count axis, and a legend) of how many messages
   landed in each bucket, so you can spot when a topic went quiet or
   spiked — hover any point for its exact range and count. Wider ranges
   with fine-grained buckets take

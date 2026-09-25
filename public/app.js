@@ -10,7 +10,8 @@ const state = {
   selectedMessageValue: null, // raw (pretty-printed if JSON) text of the currently viewed message
   detailsOpen: false,
   detailsLoadedForTopic: null,
-  adminUnlocked: false // hardcoded-password gate for Purge/Delete, unlocked for the rest of this page load
+  adminUnlocked: false, // hardcoded-password gate for Purge/Delete, unlocked for the rest of this page load
+  detailsViewOpen: false
 };
 
 // Temporary hardcoded gate for Purge messages / Delete topic - client-side
@@ -380,6 +381,7 @@ function resetFilters() {
 }
 
 function resetMessagePane() {
+  if (state.detailsViewOpen) closeTopicDetailsView();
   state.selectedTopic = null;
   state.messages = [];
   state.nextCursor = null;
@@ -407,6 +409,7 @@ function resetMessagePane() {
 }
 
 async function selectTopic(topic) {
+  if (state.detailsViewOpen) closeTopicDetailsView();
   state.selectedTopic = topic;
   state.selectedMessageIndex = null;
   state.selectedMessageValue = null;
@@ -837,15 +840,33 @@ el('delete-topic-btn').addEventListener('click', async () => {
   }
 });
 
-// ---------- topic details (modal) ----------
+// ---------- topic details (in-place view, replaces the messages view) ----------
+
+// Swaps the whole message list/detail area for the topic details + message
+// volume chart, rather than opening a modal on top - there's a lot to show
+// (a wide chart included) and it deserves the full center column.
+function closeTopicDetailsView() {
+  state.detailsViewOpen = false;
+  el('topic-details-view').hidden = true;
+  el('messages-view').hidden = false;
+  el('view-details-btn').textContent = 'View details';
+}
 
 el('view-details-btn').addEventListener('click', async () => {
+  if (state.detailsViewOpen) {
+    closeTopicDetailsView();
+    return;
+  }
+
   const topic = state.selectedTopic;
   if (!topic) return;
 
-  el('topic-details-modal-title').textContent = `Topic details — ${topic}`;
+  state.detailsViewOpen = true;
+  el('messages-view').hidden = true;
+  el('topic-details-view').hidden = false;
+  el('view-details-btn').textContent = 'Back to messages';
+
   el('topic-details-content').innerHTML = '<div class="loading-hint"><span class="spinner"></span> Loading topic details…</div>';
-  el('topic-details-modal').classList.add('open');
   resetHistogram();
 
   try {
@@ -857,11 +878,6 @@ el('view-details-btn').addEventListener('click', async () => {
     el('topic-details-content').innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
     toast(err.message, true);
   }
-});
-
-el('close-topic-details').addEventListener('click', () => el('topic-details-modal').classList.remove('open'));
-el('topic-details-modal').addEventListener('click', (e) => {
-  if (e.target.id === 'topic-details-modal') el('topic-details-modal').classList.remove('open');
 });
 
 function renderTopicDetails(data) {
