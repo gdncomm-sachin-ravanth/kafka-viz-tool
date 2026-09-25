@@ -11,7 +11,8 @@ const state = {
   detailsOpen: false,
   detailsLoadedForTopic: null,
   adminUnlocked: false, // hardcoded-password gate for Purge/Delete, unlocked for the rest of this page load
-  detailsViewOpen: false
+  detailsViewOpen: false,
+  histogramRaw: null // last-fetched { fromMs, toMs, intervalMs, buckets } for the volume chart, re-bucketed client-side on interval changes
 };
 
 // Temporary hardcoded gate for Purge messages / Delete topic - client-side
@@ -941,15 +942,53 @@ function statCard(value, label) {
   return `<div class="details-stat"><div class="stat-value">${value ?? '-'}</div><div class="stat-label">${label}</div></div>`;
 }
 
-// ---------- message volume histogram (topic details modal) ----------
+// ---------- message volume histogram (topic details view) ----------
 
-function toDateInputValue(date) {
-  return date.toISOString().slice(0, 10);
+// The dropdown's own granularities, finest first. There's no server option
+// finer than 15 minutes - at the per-lookup cost of a GetOffsetShell call
+// (each one spawns a JVM against the broker, ~2-10s depending on network),
+// something like a 1-minute bucket over a day would mean 1,440 lookups and
+// either blow the 200-bucket cap outright or take many minutes even at the
+// bounded concurrency the server uses. So instead of always asking for a
+// fixed granularity, a Load fetches at the FINEST of these that still fits
+// the 200-bucket cap for the chosen date range, caches that, and every
+// later interval-dropdown change re-buckets the cached data client-side
+// (summing groups of the fetched buckets) - instant, no refetch - unless
+// the user picks something finer than what was fetched, which triggers one
+// fresh fetch at that finer interval.
+const HISTOGRAM_INTERVAL_OPTIONS = [900000, 3600000, 21600000, 86400000, 604800000];
+const HISTOGRAM_MAX_BUCKETS = 200;
+
+function pickBaseInterval(fromMs, toMs) {
+  const span = toMs - fromMs;
+  for (const option of HISTOGRAM_INTERVAL_OPTIONS) {
+    if (Math.ceil(span / option) <= HISTOGRAM_MAX_BUCKETS) return option;
+  }
+  return HISTOGRAM_INTERVAL_OPTIONS[HISTOGRAM_INTERVAL_OPTIONS.length - 1];
+}
+
+// Groups fetched buckets (all `rawIntervalMs` wide, aligned to `rangeStart`)
+// into wider `targetIntervalMs` buckets by summing counts - targetIntervalMs
+// must be a whole multiple of rawIntervalMs, true for every pair in
+// HISTOGRAM_INTERVAL_OPTIONS.
+function aggregateBuckets(rawBuckets, rangeStart, targetIntervalMs) {
+  const groups = new Map();
+  for (const b of rawBuckets) {
+    const idx = Math.floor((b.start - rangeStart) / targetIntervalMs);
+    const g = groups.get(idx);
+    if (g) {
+      g.count += b.count;
+      g.end = b.end;
+    } else {
+      groups.set(idx, { start: b.start, end: b.end, count: b.count });
+    }
+  }
+  return [...groups.keys()].sort((a, b) => a - b).map((idx) => groups.get(idx));
 }
 
 // Defaults the range to yesterday through today (inclusive, matching the
 // day-granularity date pickers used elsewhere in the app) and clears any
-// previously rendered chart - called each time the details modal is
+// previously loaded/rendered chart - called each time the details view is
 // (re)opened so a stale chart from a different topic never lingers.
 function resetHistogram() {
   const now = new Date();
@@ -957,13 +996,26 @@ function resetHistogram() {
   el('histogram-to').value = toDateInputValue(now);
   el('histogram-from').value = toDateInputValue(yesterday);
   el('histogram-interval').value = '3600000';
+  state.histogramRaw = null;
   el('histogram-chart-wrap').innerHTML = '<p class="muted">Pick a date range and interval, then click Load to see message volume over time.</p>';
 }
 
+function toDateInputValue(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+const HISTOGRAM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// A fixed, locale-independent format ("Sep 25, 07:00") - relying on
+// toLocaleDateString here previously showed ambiguous DD/MM-vs-MM/DD
+// numeric dates depending on the browser's locale.
 function formatBucketLabel(ms, intervalMs) {
   const d = new Date(ms);
-  if (intervalMs >= 86400000) return d.toLocaleDateString();
-  return d.toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const datePart = `${HISTOGRAM_MONTHS[d.getMonth()]} ${d.getDate()}`;
+  if (intervalMs >= 86400000) return datePart;
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${datePart}, ${hh}:${mm}`;
 }
 
 // "Nice" round numbers for Y-axis ticks (1/2/5 * 10^n) rather than raw
@@ -1039,7 +1091,14 @@ function renderHistogram(data, intervalMs) {
 
   const pointsSvg = points.map((p) => {
     const title = `${formatBucketLabel(p.bucket.start, intervalMs)} – ${formatBucketLabel(p.bucket.end, intervalMs)}: ${p.bucket.count} message(s)`;
-    return `<circle class="histogram-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3"><title>${escapeHtml(title)}</title></circle>`;
+    const circle = `<circle class="histogram-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3"><title>${escapeHtml(title)}</title></circle>`;
+    // Zero-count points sit on the baseline in an unbroken row - labeling
+    // every one of those would just be visual noise, so only non-zero
+    // counts get a number drawn on the chart (still hoverable either way).
+    if (p.bucket.count <= 0) return circle;
+    const labelY = Math.max(p.y - 8, marginTop + 10);
+    const label = `<text class="histogram-point-label" x="${p.x.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle">${p.bucket.count}</text>`;
+    return circle + label;
   }).join('');
 
   wrap.innerHTML = `
@@ -1059,13 +1118,29 @@ function renderHistogram(data, intervalMs) {
   `;
 }
 
-el('load-histogram-btn').addEventListener('click', async () => {
+// Re-renders from whatever's cached in state.histogramRaw at the currently
+// selected interval, aggregating client-side - no network call. Used for
+// every interval-dropdown change once a fetch has happened.
+function renderCurrentHistogram() {
+  const raw = state.histogramRaw;
+  if (!raw) return;
+  const intervalMs = Number(el('histogram-interval').value);
+  const buckets = intervalMs <= raw.intervalMs
+    ? raw.buckets
+    : aggregateBuckets(raw.buckets, raw.fromMs, intervalMs);
+  const totalMessages = buckets.reduce((sum, b) => sum + b.count, 0);
+  renderHistogram({ buckets, totalMessages }, intervalMs);
+}
+
+// Fetches at `intervalMs` (or, if omitted, the finest interval the date
+// range's 200-bucket cap allows) and caches the result so later interval
+// changes can re-bucket it client-side instead of re-fetching.
+async function loadHistogramData(intervalMs) {
   const topic = state.selectedTopic;
   if (!topic) return;
 
   const fromStr = el('histogram-from').value;
   const toStr = el('histogram-to').value;
-  const intervalMs = Number(el('histogram-interval').value);
   if (!fromStr || !toStr) {
     toast('Pick both a from and to date', true);
     return;
@@ -1080,16 +1155,37 @@ el('load-histogram-btn').addEventListener('click', async () => {
     return;
   }
 
+  const fetchIntervalMs = intervalMs || pickBaseInterval(fromMs, toMs);
+
   const wrap = el('histogram-chart-wrap');
   wrap.innerHTML = '<div class="loading-hint"><span class="spinner"></span> Loading message volume…</div>';
 
   try {
     const data = await api(
-      `/api/topics/${encodeURIComponent(topic)}/message-counts?env=${encodeURIComponent(state.currentEnv)}&from=${fromMs}&to=${toMs}&interval=${intervalMs}`
+      `/api/topics/${encodeURIComponent(topic)}/message-counts?env=${encodeURIComponent(state.currentEnv)}&from=${fromMs}&to=${toMs}&interval=${fetchIntervalMs}`
     );
-    renderHistogram(data, intervalMs);
+    state.histogramRaw = { fromMs, toMs, intervalMs: fetchIntervalMs, buckets: data.buckets };
+    renderCurrentHistogram();
   } catch (err) {
+    state.histogramRaw = null;
     wrap.innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+el('load-histogram-btn').addEventListener('click', () => loadHistogramData());
+
+// Changing the interval dropdown never needs a fresh Load click: a coarser
+// interval than what's cached re-buckets instantly client-side; a finer one
+// (the user picked something narrower than the range's finest-feasible
+// fetch) triggers exactly one fresh fetch at that interval.
+el('histogram-interval').addEventListener('change', () => {
+  const intervalMs = Number(el('histogram-interval').value);
+  const raw = state.histogramRaw;
+  if (!raw) return;
+  if (intervalMs < raw.intervalMs) {
+    loadHistogramData(intervalMs);
+  } else {
+    renderCurrentHistogram();
   }
 });
 

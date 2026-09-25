@@ -551,6 +551,12 @@ body.resizing-pane {
   fill: var(--accent-dim);
 }
 
+.histogram-point-label {
+  fill: var(--text);
+  font-size: 10.5px;
+  font-family: var(--mono);
+}
+
 .histogram-total {
   font-size: 12px;
   color: var(--text-dim);
