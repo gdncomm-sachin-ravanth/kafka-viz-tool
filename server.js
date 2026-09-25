@@ -650,6 +650,102 @@ app.get('/api/topics/:topic/details', async (req, res) => {
   }
 });
 
+// ---------- message-count histogram ----------
+
+const MAX_HISTOGRAM_BUCKETS = 200;
+const HISTOGRAM_LOOKUP_CONCURRENCY = 20;
+
+// Runs `fn` over `items`, at most `limit` calls in flight at once, preserving
+// result order. Spawning a JVM per GetOffsetShell call is expensive enough
+// that firing dozens of them at once (a wide date range, a fine interval)
+// can starve the broker connection or this machine and time calls out.
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+// Buckets [from, to) into `interval`-sized steps (the last bucket may be
+// shorter, clamped to `to`), looks up each partition's offset at every
+// bucket boundary via GetOffsetShell's time index, and turns consecutive
+// boundary offsets into a per-bucket message count.
+async function getMessageCountHistogram(cfg, env, topic, fromMs, toMs, intervalMs) {
+  const latestOffsets = await getOffsetsAtTime(cfg, env, topic, -1);
+  const latestByPartition = new Map(latestOffsets.map((o) => [o.partition, o.offset]));
+  const partitionList = [...latestByPartition.keys()];
+
+  const numBuckets = Math.max(1, Math.ceil((toMs - fromMs) / intervalMs));
+  const boundaries = [];
+  for (let i = 0; i <= numBuckets; i++) {
+    boundaries.push(i === numBuckets ? toMs : Math.min(fromMs + i * intervalMs, toMs));
+  }
+
+  const offsetsAtBoundary = await mapWithConcurrency(
+    boundaries,
+    HISTOGRAM_LOOKUP_CONCURRENCY,
+    (t) => getOffsetsAtTime(cfg, env, topic, t)
+  );
+
+  // GetOffsetShell omits a partition from a timestamp lookup's output when
+  // no message at or after that time exists - treat that as "nothing left
+  // to count from here on", i.e. that partition's overall latest offset.
+  const resolvedBoundaries = offsetsAtBoundary.map((list) => {
+    const found = new Map(list.map((o) => [o.partition, o.offset]));
+    return new Map(partitionList.map((p) => [p, found.has(p) ? found.get(p) : latestByPartition.get(p)]));
+  });
+
+  const buckets = [];
+  for (let i = 0; i < numBuckets; i++) {
+    let count = 0;
+    for (const p of partitionList) {
+      const diff = resolvedBoundaries[i + 1].get(p) - resolvedBoundaries[i].get(p);
+      if (diff > 0) count += diff;
+    }
+    buckets.push({ start: boundaries[i], end: boundaries[i + 1], count });
+  }
+
+  return { buckets, totalMessages: buckets.reduce((sum, b) => sum + b.count, 0) };
+}
+
+app.get('/api/topics/:topic/message-counts', async (req, res) => {
+  const cfg = loadConfig();
+  if (!checkKafkaHome(cfg, res)) return;
+
+  const envName = req.query.env;
+  const topic = req.params.topic;
+  const env = getEnv(cfg, envName);
+  if (!env) return res.status(400).json({ error: `Unknown environment: ${envName}` });
+
+  const fromMs = Number(req.query.from);
+  const toMs = Number(req.query.to);
+  const intervalMs = Number(req.query.interval);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) {
+    return res.status(400).json({ error: 'from/to must be valid timestamps with from before to' });
+  }
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    return res.status(400).json({ error: 'interval must be a positive number of milliseconds' });
+  }
+  if (Math.ceil((toMs - fromMs) / intervalMs) > MAX_HISTOGRAM_BUCKETS) {
+    return res.status(400).json({
+      error: `That range/interval would need more than ${MAX_HISTOGRAM_BUCKETS} buckets - pick a coarser interval or a narrower date range.`
+    });
+  }
+
+  try {
+    const result = await getMessageCountHistogram(cfg, env, topic, fromMs, toMs, intervalMs);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- publish ----------
 
 // Mirrors org.apache.kafka.common.utils.Utils.murmur2 - the hash Kafka's
