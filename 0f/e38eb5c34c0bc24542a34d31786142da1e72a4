@@ -1,0 +1,33 @@
+CODEBASE_OVERVIEW.md
+  s_7ed27761403ca9::t_30828bf973149c 44
+  s_7ed27761403ca9::t_1cb205437f8926 48
+  s_7ed27761403ca9::t_996ee552f6cd4a 81
+public/index.html
+  s_7ed27761403ca9::t_c62ad055283943 145
+public/app.js
+  s_7ed27761403ca9::t_cd16ae65f79f10 432-436,442-443
+  s_7ed27761403ca9::t_0a6ff2374ae9dd 783
+  s_7ed27761403ca9::t_e9597a3e6b36c8 968-976
+  s_7ed27761403ca9::t_071828e98659a2 1003
+README.md
+  s_7ed27761403ca9::t_ea20a53a3d1a50 231-233
+  s_7ed27761403ca9::t_5ef8dca6062df3 220-224
+server.js
+  s_7ed27761403ca9::t_a0150efbab9f1c 723-725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "0fe38eb5c34c0bc24542a34d31786142da1e72a4",
+  "prompts": {},
+  "sessions": {
+    "s_7ed27761403ca9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99c1fef9-ac2a-4553-83d0-079656a25944",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "gdncomm-sachin-ravanth <sachin.ravanth@gdn-commerce.com>"
+    }
+  }
+}
