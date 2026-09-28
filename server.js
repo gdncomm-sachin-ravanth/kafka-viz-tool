@@ -816,6 +816,9 @@ app.post('/api/publish', async (req, res) => {
   const env = getEnv(cfg, envName);
   if (!env) return res.status(400).json({ error: `Unknown environment: ${envName}` });
   if (!topic) return res.status(400).json({ error: 'topic is required' });
+  if (isInternalTopic(topic)) {
+    return res.status(400).json({ error: 'Internal Kafka topics can’t be published to here.' });
+  }
   if (message === undefined || message === null || message === '') {
     return res.status(400).json({ error: 'message is required' });
   }

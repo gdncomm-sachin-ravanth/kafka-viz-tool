@@ -230,18 +230,20 @@ rest — it's all-or-nothing (delete) or empty-but-keep (purge).
 
 Topics Kafka creates and manages for itself — their names always start with
 a double underscore, like `__consumer_offsets` — show an **internal** tag
-in the topic list, and both red buttons stay disabled for them. These
-topics keep Kafka itself running, so purging or deleting one isn't a normal
-cleanup action; this is blocked both in the button (so you can't click it)
-and again on the server (so it's blocked even if something calls the API
-directly).
+in the topic list, and both red buttons, plus **Publish message**, stay
+disabled for them. These topics keep Kafka itself running, so purging,
+deleting, or publishing test messages into one isn't a normal action; this
+is blocked both in the buttons (so you can't click them) and again on the
+server (so it's blocked even if something calls the API directly).
 
 ### Publish page
 
 This is where you send a test message into a topic.
 
 1. Pick which Kafka connection to send to, top right.
-2. Type (or arrive with pre-filled) a **topic name**.
+2. Type (or arrive with pre-filled) a **topic name**. If you type an
+   internal Kafka topic (name starts with `__`), a warning appears and
+   Publish is disabled — same reasoning as Purge/Delete above.
 3. Optionally add a **key** — most apps use this to group related messages
    together — and/or pick a **partition** to send it to specifically. The
    partition list is filled in automatically from the real topic once you
