@@ -433,15 +433,18 @@ async function selectTopic(topic) {
   await loadMessages(topic);
 }
 
-// Purge/delete stay disabled for internal topics (__consumer_offsets etc.)
-// even once everything else has finished loading - the server rejects
-// those requests anyway, so this just keeps the buttons honest. They also
-// stay hidden behind the admin-actions lock icon until unlocked this page load.
+// Purge/delete/publish stay disabled for internal topics (__consumer_offsets
+// etc.) even once everything else has finished loading - the server rejects
+// those requests anyway, so this just keeps the buttons honest. Purge/delete
+// also stay hidden behind the admin-actions lock icon until unlocked this
+// page load.
 function setDestructiveButtonsEnabled(topic) {
   const allowed = !isInternalTopic(topic);
   const reason = allowed ? '' : 'Internal Kafka topics can’t be purged or deleted here.';
   el('admin-actions-btn').disabled = !allowed;
   el('admin-actions-btn').title = allowed ? 'Admin actions (Purge/Delete)' : reason;
+  el('publish-to-topic-btn').disabled = !allowed;
+  el('publish-to-topic-btn').title = allowed ? '' : 'Internal Kafka topics can’t be published to here.';
 
   const reveal = allowed && state.adminUnlocked;
   el('purge-topic-btn').hidden = !reveal;
@@ -480,7 +483,6 @@ async function loadMessages(topic) {
     setFiltersEnabled(true);
     el('refresh-messages').disabled = false;
     el('view-details-btn').disabled = false;
-    el('publish-to-topic-btn').disabled = false;
     setDestructiveButtonsEnabled(topic);
     el('load-older-btn').hidden = !state.hasMore;
   } catch (err) {
@@ -490,7 +492,6 @@ async function loadMessages(topic) {
     el('message-stream').innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
     // details/publish/purge/delete can still work even if message load failed
     el('view-details-btn').disabled = false;
-    el('publish-to-topic-btn').disabled = false;
     setDestructiveButtonsEnabled(topic);
     toast(err.message, true);
   }
@@ -783,6 +784,7 @@ el('publish-to-topic-btn').addEventListener('click', async () => {
 
   switchToPage('publish');
   el('publish-topic').value = topic;
+  updatePublishInternalWarning();
   await refreshPublishPartitions();
 });
 
@@ -1228,6 +1230,15 @@ async function refreshPublishPartitions() {
   }
 }
 
+// Flags an internal topic as soon as it's typed, rather than only on submit.
+function updatePublishInternalWarning() {
+  const topic = el('publish-topic').value.trim();
+  const internal = topic && isInternalTopic(topic);
+  el('publish-topic-warning').textContent = internal ? 'Internal Kafka topics can’t be published to here.' : '';
+  el('publish-btn').disabled = internal;
+}
+
+el('publish-topic').addEventListener('input', updatePublishInternalWarning);
 el('publish-topic').addEventListener('blur', refreshPublishPartitions);
 el('publish-partition-toggle').addEventListener('click', () => setPublishPartitionMode(!publishPartitionManual));
 setPublishPartitionMode(false);
@@ -1254,6 +1265,7 @@ el('publish-btn').addEventListener('click', async () => {
 
   if (!state.currentEnv) return toast('Select an environment first', true);
   if (!topic) return toast('Topic is required', true);
+  if (isInternalTopic(topic)) return toast('Internal Kafka topics can’t be published to here.', true);
   try {
     JSON.parse(message);
   } catch (err) {

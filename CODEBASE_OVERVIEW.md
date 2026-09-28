@@ -42,11 +42,11 @@ Topic details are not a modal - "View details" swaps the whole message list/deta
   - Filters (all client-side over the loaded batch): partition dropdown, key substring, date range, plus the free-text search
   - "Purge messages" deletes all records in every partition (topic/partitions remain); "Delete topic" removes the topic entirely. Both require typing the topic name into a confirmation modal, and both show a blocking full-page overlay (disabling every other control) while the request is in flight
   - Both buttons are hidden behind a lock icon (`admin-actions-btn`) until unlocked with a hardcoded password (`Admin@Kafka01`, `ADMIN_PASSWORD` in app.js) - client-side only, no server enforcement. This is a placeholder click-guard, not real access control; a proper mechanism is still to be designed. Once unlocked via `promptAdminPassword()`, `state.adminUnlocked` stays true for the rest of the page load (reset on reload)
-  - Internal Kafka topics (name starts with `__`, e.g. `__consumer_offsets`) get an "internal" badge in the topic list, and both the lock icon and the buttons stay disabled when one is selected - enforced client-side (`isInternalTopic` in app.js) and again server-side (same check in server.js on the delete/purge routes) so it can't be bypassed via a direct API call
+  - Internal Kafka topics (name starts with `__`, e.g. `__consumer_offsets`) get an "internal" badge in the topic list, and the lock icon, the purge/delete buttons, and "Publish message" all stay disabled when one is selected - enforced client-side (`isInternalTopic` in app.js, folded into `setDestructiveButtonsEnabled` despite the name) and again server-side (same check in server.js on the delete/purge/publish routes) so it can't be bypassed via a direct API call
 - **Message detail pane (right)**: clicking a message in the stream shows its full payload, pretty-printed if it parses as JSON. A toolbar above it has a search box that highlights matching text within the payload (client-side, `<mark>` wrapping - doesn't touch the underlying content), and a copy button that copies the full displayed payload to the clipboard (Clipboard API with an `execCommand('copy')` fallback for contexts where it's unavailable)
 
 ### Publish page
-- Topic name input — can be typed directly, or auto-filled by the "Publish message" button from the Topics page
+- Topic name input — can be typed directly, or auto-filled by the "Publish message" button from the Topics page. Typing an internal topic (`__`-prefixed) shows an inline warning and disables the Publish button (`updatePublishInternalWarning`, on the field's `input` event); also rejected server-side in `/api/publish`
 - Key (optional) — sent as-is via the console producer's key properties
 - Partition (optional) — a dropdown populated from the topic's real partitions once you tab out of the Topic field (or auto-populated when arriving via "Publish message"); falls back to a manual number input for a topic that doesn't exist yet or can't be described. Since `kafka-console-producer.sh` has no direct partition flag, an explicit partition with no key is achieved by generating a synthetic key whose murmur2 hash routes to that partition under Kafka's default partitioner
 - JSON message textarea with live JSON validation status
@@ -84,7 +84,7 @@ Populated by `GET /api/topics/:topic/details`, shows:
 | GET | `/api/messages?env=&topic=&limit=&since=&cursor=` | Fetch messages across all partitions, newest first. `cursor` (JSON `{partition: exclusiveEndOffset}`, from a prior response's `nextCursor`) continues an older page for "Load older messages"; response includes `nextCursor` and `hasMore` for pagination. `since` (epoch ms) also accepts a time-bounded load via `GetOffsetShell --time` (capped at 2,000 messages), though no UI control currently calls it |
 | GET | `/api/topics/:topic/details?env=` | Partition info, offsets, consumer groups, config |
 | GET | `/api/topics/:topic/message-counts?env=&from=&to=&interval=` | Message-count histogram between `from`/`to` (epoch ms) bucketed into `interval`-ms steps; rejects requests needing more than 200 buckets |
-| POST | `/api/publish` | Publish one JSON message to a topic |
+| POST | `/api/publish` | Publish one JSON message to a topic (rejects internal topics) |
 
 ### Message-loading algorithm
 1. `GetOffsetShell` fetches both the latest and earliest available offset per partition (log retention can delete old segments, so a partition's earliest offset isn't always 0)
