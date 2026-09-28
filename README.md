@@ -185,9 +185,22 @@ This is where you browse what's already in Kafka.
   search box highlights any matching text within that payload (handy for
   finding a specific field on a long message), and the copy icon copies the
   whole payload to your clipboard exactly as shown.
-- **View details** opens a popup showing the topic's partitions, replica
-  info, message counts, and which consumer groups are reading from it and
-  how far behind they are.
+- **View details** switches this whole area over to the topic's partitions,
+  replica info, message counts, and which consumer groups are reading from
+  it and how far behind they are — click **Back to messages** (same button)
+  to return to the message list. It also has a **Message volume** chart
+  further down — pick a from/to date, click **Load**, and it draws a line
+  chart (with a time axis, a message-count axis, and a legend) of how many
+  messages landed over that range, so you can spot when a topic went quiet
+  or spiked. Non-zero points show their count right on the chart, and
+  hovering any point gives its exact bucket range and count. Changing the
+  **Interval** dropdown afterward (15 minutes up to weekly) redraws
+  instantly — it's just re-grouping the data already fetched, not asking
+  Kafka again — except when you pick something finer than what's loaded, in
+  which case it fetches once more at that interval. Wider ranges take
+  longer to load the first time (each bucket needs its own lookup against
+  Kafka) and very wide ranges are rejected with a message asking you to
+  pick a coarser interval or a narrower range.
 - **Publish message** takes you straight to the Publish page with this
   topic's name already filled in and its partitions ready to pick from — a
   shortcut so you don't have to retype the topic name.

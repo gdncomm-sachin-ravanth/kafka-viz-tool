@@ -10,7 +10,9 @@ const state = {
   selectedMessageValue: null, // raw (pretty-printed if JSON) text of the currently viewed message
   detailsOpen: false,
   detailsLoadedForTopic: null,
-  adminUnlocked: false // hardcoded-password gate for Purge/Delete, unlocked for the rest of this page load
+  adminUnlocked: false, // hardcoded-password gate for Purge/Delete, unlocked for the rest of this page load
+  detailsViewOpen: false,
+  histogramRaw: null // last-fetched { fromMs, toMs, intervalMs, buckets } for the volume chart, re-bucketed client-side on interval changes
 };
 
 // Temporary hardcoded gate for Purge messages / Delete topic - client-side
@@ -380,6 +382,7 @@ function resetFilters() {
 }
 
 function resetMessagePane() {
+  if (state.detailsViewOpen) closeTopicDetailsView();
   state.selectedTopic = null;
   state.messages = [];
   state.nextCursor = null;
@@ -407,6 +410,7 @@ function resetMessagePane() {
 }
 
 async function selectTopic(topic) {
+  if (state.detailsViewOpen) closeTopicDetailsView();
   state.selectedTopic = topic;
   state.selectedMessageIndex = null;
   state.selectedMessageValue = null;
@@ -837,15 +841,34 @@ el('delete-topic-btn').addEventListener('click', async () => {
   }
 });
 
-// ---------- topic details (modal) ----------
+// ---------- topic details (in-place view, replaces the messages view) ----------
+
+// Swaps the whole message list/detail area for the topic details + message
+// volume chart, rather than opening a modal on top - there's a lot to show
+// (a wide chart included) and it deserves the full center column.
+function closeTopicDetailsView() {
+  state.detailsViewOpen = false;
+  el('topic-details-view').hidden = true;
+  el('messages-view').hidden = false;
+  el('view-details-btn').textContent = 'View details';
+}
 
 el('view-details-btn').addEventListener('click', async () => {
+  if (state.detailsViewOpen) {
+    closeTopicDetailsView();
+    return;
+  }
+
   const topic = state.selectedTopic;
   if (!topic) return;
 
-  el('topic-details-modal-title').textContent = `Topic details — ${topic}`;
+  state.detailsViewOpen = true;
+  el('messages-view').hidden = true;
+  el('topic-details-view').hidden = false;
+  el('view-details-btn').textContent = 'Back to messages';
+
   el('topic-details-content').innerHTML = '<div class="loading-hint"><span class="spinner"></span> Loading topic details…</div>';
-  el('topic-details-modal').classList.add('open');
+  resetHistogram();
 
   try {
     const data = await api(
@@ -856,11 +879,6 @@ el('view-details-btn').addEventListener('click', async () => {
     el('topic-details-content').innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
     toast(err.message, true);
   }
-});
-
-el('close-topic-details').addEventListener('click', () => el('topic-details-modal').classList.remove('open'));
-el('topic-details-modal').addEventListener('click', (e) => {
-  if (e.target.id === 'topic-details-modal') el('topic-details-modal').classList.remove('open');
 });
 
 function renderTopicDetails(data) {
@@ -923,6 +941,253 @@ function renderTopicDetails(data) {
 function statCard(value, label) {
   return `<div class="details-stat"><div class="stat-value">${value ?? '-'}</div><div class="stat-label">${label}</div></div>`;
 }
+
+// ---------- message volume histogram (topic details view) ----------
+
+// The dropdown's own granularities, finest first. There's no server option
+// finer than 15 minutes - at the per-lookup cost of a GetOffsetShell call
+// (each one spawns a JVM against the broker, ~2-10s depending on network),
+// something like a 1-minute bucket over a day would mean 1,440 lookups and
+// either blow the 200-bucket cap outright or take many minutes even at the
+// bounded concurrency the server uses. So instead of always asking for a
+// fixed granularity, a Load fetches at the FINEST of these that still fits
+// the 200-bucket cap for the chosen date range, caches that, and every
+// later interval-dropdown change re-buckets the cached data client-side
+// (summing groups of the fetched buckets) - instant, no refetch - unless
+// the user picks something finer than what was fetched, which triggers one
+// fresh fetch at that finer interval.
+const HISTOGRAM_INTERVAL_OPTIONS = [900000, 3600000, 21600000, 86400000, 604800000];
+const HISTOGRAM_MAX_BUCKETS = 200;
+
+function pickBaseInterval(fromMs, toMs) {
+  const span = toMs - fromMs;
+  for (const option of HISTOGRAM_INTERVAL_OPTIONS) {
+    if (Math.ceil(span / option) <= HISTOGRAM_MAX_BUCKETS) return option;
+  }
+  return HISTOGRAM_INTERVAL_OPTIONS[HISTOGRAM_INTERVAL_OPTIONS.length - 1];
+}
+
+// Groups fetched buckets (all `rawIntervalMs` wide, aligned to `rangeStart`)
+// into wider `targetIntervalMs` buckets by summing counts - targetIntervalMs
+// must be a whole multiple of rawIntervalMs, true for every pair in
+// HISTOGRAM_INTERVAL_OPTIONS.
+function aggregateBuckets(rawBuckets, rangeStart, targetIntervalMs) {
+  const groups = new Map();
+  for (const b of rawBuckets) {
+    const idx = Math.floor((b.start - rangeStart) / targetIntervalMs);
+    const g = groups.get(idx);
+    if (g) {
+      g.count += b.count;
+      g.end = b.end;
+    } else {
+      groups.set(idx, { start: b.start, end: b.end, count: b.count });
+    }
+  }
+  return [...groups.keys()].sort((a, b) => a - b).map((idx) => groups.get(idx));
+}
+
+// Defaults the range to yesterday through today (inclusive, matching the
+// day-granularity date pickers used elsewhere in the app) and clears any
+// previously loaded/rendered chart - called each time the details view is
+// (re)opened so a stale chart from a different topic never lingers.
+function resetHistogram() {
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  el('histogram-to').value = toDateInputValue(now);
+  el('histogram-from').value = toDateInputValue(yesterday);
+  el('histogram-interval').value = '3600000';
+  state.histogramRaw = null;
+  el('histogram-chart-wrap').innerHTML = '<p class="muted">Pick a date range and interval, then click Load to see message volume over time.</p>';
+}
+
+function toDateInputValue(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+const HISTOGRAM_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// A fixed, locale-independent format ("Sep 25, 07:00") - relying on
+// toLocaleDateString here previously showed ambiguous DD/MM-vs-MM/DD
+// numeric dates depending on the browser's locale.
+function formatBucketLabel(ms, intervalMs) {
+  const d = new Date(ms);
+  const datePart = `${HISTOGRAM_MONTHS[d.getMonth()]} ${d.getDate()}`;
+  if (intervalMs >= 86400000) return datePart;
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${datePart}, ${hh}:${mm}`;
+}
+
+// "Nice" round numbers for Y-axis ticks (1/2/5 * 10^n) rather than raw
+// fractions of the max, so the axis reads like a normal chart's.
+function niceStep(roughStep) {
+  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep || 1)));
+  const residual = roughStep / magnitude;
+  const niceResidual = residual >= 5 ? 10 : residual >= 2 ? 5 : residual >= 1 ? 2 : 1;
+  return niceResidual * magnitude;
+}
+
+function renderHistogram(data, intervalMs) {
+  const wrap = el('histogram-chart-wrap');
+  const { buckets, totalMessages } = data;
+
+  if (!buckets.length || totalMessages === 0) {
+    wrap.innerHTML = '<p class="muted">No messages in this date range.</p>';
+    return;
+  }
+
+  const width = 1100;
+  const height = 340;
+  const marginLeft = 64;
+  const marginRight = 24;
+  const marginTop = 24;
+  const marginBottom = 56;
+  const plotWidth = width - marginLeft - marginRight;
+  const plotHeight = height - marginTop - marginBottom;
+
+  const rangeStart = buckets[0].start;
+  const rangeEnd = buckets[buckets.length - 1].end;
+  const rangeSpan = Math.max(rangeEnd - rangeStart, 1);
+
+  const rawMax = Math.max(...buckets.map((b) => b.count), 1);
+  const yStep = niceStep(rawMax / 4);
+  const yMax = Math.ceil(rawMax / yStep) * yStep;
+
+  const xForTime = (t) => marginLeft + ((t - rangeStart) / rangeSpan) * plotWidth;
+  const yForCount = (c) => marginTop + plotHeight - (c / yMax) * plotHeight;
+
+  const points = buckets.map((b) => ({
+    x: xForTime((b.start + b.end) / 2),
+    y: yForCount(b.count),
+    bucket: b
+  }));
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const areaPath = `${linePath} L${points[points.length - 1].x.toFixed(1)},${(marginTop + plotHeight).toFixed(1)} `
+    + `L${points[0].x.toFixed(1)},${(marginTop + plotHeight).toFixed(1)} Z`;
+
+  // Y-axis gridlines + labels, evenly spaced from 0 to yMax.
+  const yTickCount = 4;
+  let yTicksSvg = '';
+  for (let i = 0; i <= yTickCount; i++) {
+    const value = (yMax / yTickCount) * i;
+    const y = yForCount(value);
+    yTicksSvg += `
+      <line class="histogram-gridline" x1="${marginLeft}" y1="${y.toFixed(1)}" x2="${width - marginRight}" y2="${y.toFixed(1)}" />
+      <text class="histogram-axis-label" x="${marginLeft - 10}" y="${y.toFixed(1)}" text-anchor="end" dominant-baseline="middle">${Math.round(value)}</text>
+    `;
+  }
+
+  // X-axis ticks: at most ~7 labels regardless of bucket count, so labels
+  // don't overlap when there are many buckets.
+  const xTickCount = Math.min(7, buckets.length);
+  let xTicksSvg = '';
+  for (let i = 0; i < xTickCount; i++) {
+    const idx = Math.round((i / Math.max(xTickCount - 1, 1)) * (buckets.length - 1));
+    const b = buckets[idx];
+    const x = xForTime((b.start + b.end) / 2);
+    xTicksSvg += `<text class="histogram-axis-label" x="${x.toFixed(1)}" y="${height - marginBottom + 20}" text-anchor="middle">${escapeHtml(formatBucketLabel(b.start, intervalMs))}</text>`;
+  }
+
+  const pointsSvg = points.map((p) => {
+    const title = `${formatBucketLabel(p.bucket.start, intervalMs)} – ${formatBucketLabel(p.bucket.end, intervalMs)}: ${p.bucket.count} message(s)`;
+    const circle = `<circle class="histogram-point" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3"><title>${escapeHtml(title)}</title></circle>`;
+    // Zero-count points sit on the baseline in an unbroken row - labeling
+    // every one of those would just be visual noise, so only non-zero
+    // counts get a number drawn on the chart (still hoverable either way).
+    if (p.bucket.count <= 0) return circle;
+    const labelY = Math.max(p.y - 8, marginTop + 10);
+    const label = `<text class="histogram-point-label" x="${p.x.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle">${p.bucket.count}</text>`;
+    return circle + label;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="histogram-legend"><span class="histogram-legend-swatch"></span>Messages per bucket</div>
+    <svg class="histogram-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+      <line class="histogram-axis-line" x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${marginTop + plotHeight}" />
+      <line class="histogram-axis-line" x1="${marginLeft}" y1="${marginTop + plotHeight}" x2="${width - marginRight}" y2="${marginTop + plotHeight}" />
+      ${yTicksSvg}
+      ${xTicksSvg}
+      <path class="histogram-area" d="${areaPath}" />
+      <path class="histogram-line" d="${linePath}" />
+      ${pointsSvg}
+      <text class="histogram-axis-title" x="${marginLeft + plotWidth / 2}" y="${height - 8}" text-anchor="middle">Time</text>
+      <text class="histogram-axis-title" transform="translate(16, ${marginTop + plotHeight / 2}) rotate(-90)" text-anchor="middle">Message count</text>
+    </svg>
+    <div class="histogram-total">${totalMessages} message(s) across ${buckets.length} bucket(s)</div>
+  `;
+}
+
+// Re-renders from whatever's cached in state.histogramRaw at the currently
+// selected interval, aggregating client-side - no network call. Used for
+// every interval-dropdown change once a fetch has happened.
+function renderCurrentHistogram() {
+  const raw = state.histogramRaw;
+  if (!raw) return;
+  const intervalMs = Number(el('histogram-interval').value);
+  const buckets = intervalMs <= raw.intervalMs
+    ? raw.buckets
+    : aggregateBuckets(raw.buckets, raw.fromMs, intervalMs);
+  const totalMessages = buckets.reduce((sum, b) => sum + b.count, 0);
+  renderHistogram({ buckets, totalMessages }, intervalMs);
+}
+
+// Fetches at `intervalMs` (or, if omitted, the finest interval the date
+// range's 200-bucket cap allows) and caches the result so later interval
+// changes can re-bucket it client-side instead of re-fetching.
+async function loadHistogramData(intervalMs) {
+  const topic = state.selectedTopic;
+  if (!topic) return;
+
+  const fromStr = el('histogram-from').value;
+  const toStr = el('histogram-to').value;
+  if (!fromStr || !toStr) {
+    toast('Pick both a from and to date', true);
+    return;
+  }
+
+  const fromMs = new Date(fromStr).getTime();
+  // "To" is a calendar day - include the whole day by treating it as
+  // exclusive midnight at the start of the following day.
+  const toMs = new Date(toStr).getTime() + 24 * 60 * 60 * 1000;
+  if (fromMs >= toMs) {
+    toast('"From" must be before "To"', true);
+    return;
+  }
+
+  const fetchIntervalMs = intervalMs || pickBaseInterval(fromMs, toMs);
+
+  const wrap = el('histogram-chart-wrap');
+  wrap.innerHTML = '<div class="loading-hint"><span class="spinner"></span> Loading message volume…</div>';
+
+  try {
+    const data = await api(
+      `/api/topics/${encodeURIComponent(topic)}/message-counts?env=${encodeURIComponent(state.currentEnv)}&from=${fromMs}&to=${toMs}&interval=${fetchIntervalMs}`
+    );
+    state.histogramRaw = { fromMs, toMs, intervalMs: fetchIntervalMs, buckets: data.buckets };
+    renderCurrentHistogram();
+  } catch (err) {
+    state.histogramRaw = null;
+    wrap.innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+el('load-histogram-btn').addEventListener('click', () => loadHistogramData());
+
+// Changing the interval dropdown never needs a fresh Load click: a coarser
+// interval than what's cached re-buckets instantly client-side; a finer one
+// (the user picked something narrower than the range's finest-feasible
+// fetch) triggers exactly one fresh fetch at that interval.
+el('histogram-interval').addEventListener('change', () => {
+  const intervalMs = Number(el('histogram-interval').value);
+  const raw = state.histogramRaw;
+  if (!raw) return;
+  if (intervalMs < raw.intervalMs) {
+    loadHistogramData(intervalMs);
+  } else {
+    renderCurrentHistogram();
+  }
+});
 
 // ---------- publish ----------
 
