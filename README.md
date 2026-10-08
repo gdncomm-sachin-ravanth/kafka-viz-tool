@@ -201,6 +201,19 @@ This is where you browse what's already in Kafka.
   longer to load the first time (each bucket needs its own lookup against
   Kafka) and very wide ranges are rejected with a message asking you to
   pick a coarser interval or a narrower range.
+- **Live lag** (inside **View details**) shows how far behind each consumer
+  group is on this topic, refreshing on its own every 5 s to 1 min (your
+  pick; Pause/Resume as needed) as a table plus a line chart of each group's
+  total lag over time - the same number monitoring tools like Burrow/Grafana
+  report. Type or pick the group(s) you want to watch (up to 10; remembered
+  per connection and topic), or click **Find groups for this topic** to
+  scan the cluster for them. That scan describes every group on the
+  cluster, so on a big cluster (QA2 has 2,000+ groups) it runs in the
+  background and takes a few minutes - progress shows on the button. The
+  chart only covers the time since you opened the view; nothing is stored.
+  On clusters with more than 40 groups, the plain "Consumer groups" list
+  above isn't filled in automatically (describing them all is too slow) -
+  use Live lag instead.
 - **Publish message** takes you straight to the Publish page with this
   topic's name already filled in and its partitions ready to pick from — a
   shortcut so you don't have to retype the topic name.
