@@ -2,6 +2,7 @@ const state = {
   config: { kafkaHome: '', environments: [] },
   currentEnv: null,
   topics: [],
+  topicsMode: 'idle', // 'idle' | 'search' | 'all' - see fetchTopicList
   selectedTopic: null,
   messages: [], // loaded batch for the selected topic (accumulates as older pages load)
   nextCursor: null, // per-partition offset to resume from for "Load older messages"
@@ -191,7 +192,8 @@ function renderEnvList() {
 el('env-select').addEventListener('change', (e) => {
   state.currentEnv = e.target.value;
   state.selectedTopic = null;
-  loadTopics();
+  el('topic-filter').value = '';
+  resetTopicList();
   resetMessagePane();
 });
 
@@ -235,26 +237,65 @@ el('add-env').addEventListener('click', async () => {
 
 // ---------- topics ----------
 
-async function loadTopics() {
+// By default no topics are fetched - a big cluster's full list is slow to
+// load and unwieldy to scroll. The list is empty until the user searches
+// (server filters, only matches come back) or clicks "Fetch all topics".
+// topicsMode: 'idle' (nothing shown), 'search' (server-filtered results),
+// 'all' (full list; typing then just filters it client-side).
+let topicRequestSeq = 0;
+let topicSearchTimer = null;
+
+function showTopicListMessage(msg) {
+  el('topic-list').innerHTML = `<li class="topic-list-hint">${escapeHtml(msg)}</li>`;
+}
+
+function resetTopicList() {
+  clearTimeout(topicSearchTimer);
+  topicRequestSeq += 1;
+  state.topicsMode = 'idle';
+  state.topics = [];
+  el('fetch-all-topics-btn').disabled = false;
+  showTopicListMessage('Search for a topic above (type part of its name), or click "Fetch all topics".');
+}
+
+async function fetchTopicList({ search = '', refresh = false, mode }) {
   if (!state.currentEnv) return;
-  const list = el('topic-list');
-  list.innerHTML = '<li class="muted" style="cursor:default">Loading…</li>';
+  const seq = ++topicRequestSeq;
+  state.topicsMode = mode;
+  showTopicListMessage(search ? `Searching for "${search}"…` : 'Loading all topics…');
+  el('fetch-all-topics-btn').disabled = true;
   try {
-    const data = await api(`/api/topics?env=${encodeURIComponent(state.currentEnv)}`);
+    const params = new URLSearchParams({ env: state.currentEnv });
+    if (search) params.set('search', search);
+    if (refresh) params.set('refresh', '1');
+    const data = await api(`/api/topics?${params}`);
+    if (seq !== topicRequestSeq) return; // a newer search/env change superseded this one
     state.topics = data.topics;
     renderTopicList();
   } catch (err) {
-    list.innerHTML = '';
+    if (seq !== topicRequestSeq) return;
+    state.topics = [];
+    showTopicListMessage('Couldn’t load topics - see the error message.');
     toast(err.message, true);
+  } finally {
+    if (seq === topicRequestSeq) el('fetch-all-topics-btn').disabled = false;
   }
 }
 
+const searchTopics = (term, refresh = false) => fetchTopicList({ search: term, refresh, mode: 'search' });
+const loadAllTopics = (refresh = true) => fetchTopicList({ refresh, mode: 'all' });
+
 function renderTopicList() {
-  const filter = el('topic-filter').value.toLowerCase();
+  if (state.topicsMode === 'idle') return;
+  const filter = el('topic-filter').value.trim().toLowerCase();
   const list = el('topic-list');
   list.innerHTML = '';
-  state.topics
-    .filter((t) => t.toLowerCase().includes(filter))
+  const visible = state.topics.filter((t) => t.toLowerCase().includes(filter));
+  if (!visible.length) {
+    showTopicListMessage(filter ? `No topics match "${el('topic-filter').value.trim()}".` : 'No topics found.');
+    return;
+  }
+  visible
     .forEach((t) => {
       const li = document.createElement('li');
       li.title = t;
@@ -270,8 +311,25 @@ function renderTopicList() {
     });
 }
 
-el('topic-filter').addEventListener('input', renderTopicList);
-el('refresh-topics').addEventListener('click', loadTopics);
+el('topic-filter').addEventListener('input', () => {
+  if (state.topicsMode === 'all') return renderTopicList();
+  clearTimeout(topicSearchTimer);
+  const term = el('topic-filter').value.trim();
+  if (!term) return resetTopicList();
+  topicSearchTimer = setTimeout(() => searchTopics(term), 500);
+});
+el('topic-filter').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || state.topicsMode === 'all') return;
+  clearTimeout(topicSearchTimer);
+  const term = el('topic-filter').value.trim();
+  if (term) searchTopics(term);
+});
+el('fetch-all-topics-btn').addEventListener('click', () => loadAllTopics(true));
+el('refresh-topics').addEventListener('click', () => {
+  const term = el('topic-filter').value.trim();
+  if (state.topicsMode === 'all') loadAllTopics(true);
+  else if (term) searchTopics(term, true);
+});
 el('refresh-messages').addEventListener('click', () => selectTopic(state.selectedTopic));
 
 el('load-older-btn').addEventListener('click', async () => {
@@ -357,7 +415,12 @@ el('create-new-topic').addEventListener('click', async () => {
     });
     toast(`Created topic ${topic} (${partitions} partition(s))`);
     closeNewTopicModal();
-    await loadTopics();
+    if (state.topicsMode === 'all') {
+      await loadAllTopics(true);
+    } else {
+      el('topic-filter').value = topic;
+      await searchTopics(topic, true);
+    }
     selectTopic(topic);
   } catch (err) {
     errorEl.textContent = err.message;
@@ -835,7 +898,8 @@ el('delete-topic-btn').addEventListener('click', async () => {
     toast(`Deleted topic ${topic}`);
     resetMessagePane();
     if (el('topic-filter').value) el('topic-filter').value = '';
-    loadTopics();
+    if (state.topicsMode === 'all') loadAllTopics(true);
+    else resetTopicList();
   } catch (err) {
     toast(err.message, true);
   } finally {
@@ -1314,5 +1378,5 @@ function escapeHtml(str) {
 
 (async function init() {
   await loadConfig();
-  if (state.currentEnv) loadTopics();
+  resetTopicList();
 })();
