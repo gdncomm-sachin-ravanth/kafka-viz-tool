@@ -972,3 +972,8 @@ body.resizing-pane {
 }
 
 .toast.err { border-color: var(--danger); color: var(--danger); }
+
+.fetch-all-row { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.fetch-all-row .btn { width: 100%; }
+.topic-list .topic-list-hint { padding: 14px 16px; color: var(--text-dim); font-size: 13px; cursor: default; white-space: normal; text-overflow: clip; font-family: inherit; }
+.topic-list .topic-list-hint:hover { background: transparent; }

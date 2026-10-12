@@ -155,6 +155,12 @@ app.delete('/api/environments/:name', (req, res) => {
 
 // ---------- topics ----------
 
+// The CLI has no "search" - listing is always the full list (slow on a big
+// cluster) - so searching lists once, caches briefly, and filters here so the
+// browser only receives the matches.
+const TOPIC_LIST_TTL_MS = 30000;
+const topicListCache = new Map(); // bootstrap servers -> { at, topics }
+
 app.get('/api/topics', async (req, res) => {
   const cfg = loadConfig();
   if (!checkKafkaHome(cfg, res)) return;
@@ -163,23 +169,32 @@ app.get('/api/topics', async (req, res) => {
   const env = getEnv(cfg, envName);
   if (!env) return res.status(400).json({ error: `Unknown environment: ${envName}` });
 
-  const { code, stdout, stderr } = await runCommand(
-    kafkaBin(cfg, 'kafka-topics.sh'),
-    ['--bootstrap-server', env.bootstrapServers, '--list'],
-    { timeoutMs: 15000 }
-  );
+  let topics;
+  const hit = topicListCache.get(env.bootstrapServers);
+  if (hit && !req.query.refresh && Date.now() - hit.at < TOPIC_LIST_TTL_MS) {
+    topics = hit.topics;
+  } else {
+    const { code, stdout, stderr } = await runCommand(
+      kafkaBin(cfg, 'kafka-topics.sh'),
+      ['--bootstrap-server', env.bootstrapServers, '--list'],
+      {}
+    );
 
-  if (code !== 0) {
-    return res.status(500).json({ error: stderr || 'Failed to list topics' });
+    if (code !== 0) {
+      return res.status(500).json({ error: stderr || 'Failed to list topics' });
+    }
+
+    topics = stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .sort();
+    topicListCache.set(env.bootstrapServers, { at: Date.now(), topics });
   }
 
-  const topics = stdout
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .sort();
-
-  res.json({ topics });
+  const search = String(req.query.search || '').trim().toLowerCase();
+  const matches = search ? topics.filter((t) => t.toLowerCase().includes(search)) : topics;
+  res.json({ topics: matches, total: topics.length });
 });
 
 app.post('/api/topics', async (req, res) => {

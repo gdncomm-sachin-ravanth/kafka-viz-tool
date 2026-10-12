@@ -32,7 +32,7 @@ Topic details are not a modal - "View details" swaps the whole message list/deta
 - Settings gear icon → opens Settings modal
 
 ### Topics & Messages page
-- **Topic list (left pane)**: lists all topics for the selected environment, client-side filter box, manual refresh button, and a "+" button to create a new topic (name, partitions, replication factor via `kafka-topics.sh --create`) — the new topic is auto-selected once created. The pane is resizable via a drag divider on its right edge (width persisted in `localStorage`). Deleting a topic clears the filter box and refreshes the list.
+- **Topic list (left pane)**: search-first - empty by default (`state.topicsMode` = `'idle'`), because QA2 has 13,000+ topics. Typing (500ms debounce, or Enter) calls `GET /api/topics?search=` and shows only matches (`'search'` mode); the "Fetch all topics" button loads everything (`'all'` mode), after which the filter box filters client-side. `fetchTopicList` drops superseded responses via `topicRequestSeq`. The server caches the full CLI list for 30s per cluster (`topicListCache`) so refining a search is instant; `refresh=1` bypasses it. A client-side filter box, manual refresh button, and a "+" button to create a new topic (name, partitions, replication factor via `kafka-topics.sh --create`) — the new topic is auto-selected once created. The pane is resizable via a drag divider on its right edge (width persisted in `localStorage`). Deleting a topic clears the filter box and refreshes the list.
 - **Message stream (center)**: on selecting a topic, loads its most recent messages (default limit 50) merged and sorted newest-first across *all* partitions. "Load older messages" (shown when more is available) pages backward per partition using a cursor (`nextCursor`/`hasMore` in the response) rather than a fixed count, appending to the currently displayed batch
   - Header shows "loaded until" timestamp — the oldest message's timestamp in the loaded batch, so the user knows the time window covered
   - Client-side search box filters the already-loaded messages by key/value text (no re-query)
@@ -76,7 +76,7 @@ Populated by `GET /api/topics/:topic/details`, shows:
 | POST | `/api/config/kafka-home` | Update kafkaHome path |
 | POST | `/api/environments` | Add or update an environment |
 | DELETE | `/api/environments/:name` | Remove an environment |
-| GET | `/api/topics?env=` | List topics (`kafka-topics.sh --list`) |
+| GET | `/api/topics?env=&search=&refresh=` | List topics (`kafka-topics.sh --list`), optionally filtered by case-insensitive substring `search`; response `{topics, total}`. Full list cached 30s, `refresh=1` bypasses |
 | POST | `/api/topics` | Create a topic with explicit partitions/replication factor (`kafka-topics.sh --create`) |
 | DELETE | `/api/topics/:topic?env=` | Delete a topic entirely (rejects internal topics, name starting with `__`) |
 | POST | `/api/topics/:topic/purge?env=` | Delete all records in every partition (`kafka-delete-records.sh`); rejects internal topics |

@@ -61,14 +61,15 @@
     <section id="page-topics" class="page active">
       <aside id="topic-pane" class="topic-pane">
         <div class="pane-header">
-          <input id="topic-filter" type="text" placeholder="Filter topics…" />
-          <button id="refresh-topics" class="icon-btn" title="Refresh topics">
+          <input id="topic-filter" type="text" placeholder="Search topics…" />
+          <button id="refresh-topics" class="icon-btn" title="Re-run the search / reload the list">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 10-2.3 5.7M20 5v6h-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <button id="new-topic-btn" class="icon-btn" title="Create a new topic">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           </button>
         </div>
+        <div class="fetch-all-row"><button id="fetch-all-topics-btn" class="btn">Fetch all topics</button></div>
         <ul id="topic-list" class="topic-list"></ul>
       </aside>
 
