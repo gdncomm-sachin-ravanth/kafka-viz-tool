@@ -98,6 +98,8 @@ Populated by `GET /api/topics/:topic/details`, shows:
 
 Each CLI invocation pays ~1-3s JVM startup cost, so topics with many partitions take longer to load — this is a known/documented limitation.
 
+All CLI calls share one generous timeout (`CLI_TIMEOUT_MS`, 45s, in `runCommand`) because over a slow VPN a single call can take 15-20s. A call killed at the limit returns `timedOut: true` and a readable "Timed out after Ns..." stderr - a killed process prints nothing, so previously the UI only saw a generic "Failed to list topics / fetch partition offsets".
+
 ### Message-count histogram algorithm
 1. Split `[from, to)` into `interval`-sized buckets (the last one clamped to `to`)
 2. Look up every partition's offset at each bucket boundary via `GetOffsetShell --time <boundary>` - one CLI call per boundary, run with bounded concurrency (`mapWithConcurrency`, `HISTOGRAM_LOOKUP_CONCURRENCY`) rather than all at once, since dozens of concurrent JVM spawns against the broker can start timing calls out

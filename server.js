@@ -54,15 +54,21 @@ function kafkaBin(cfg, scriptName) {
  * Run a CLI command, collect stdout/stderr, resolve on exit (never rejects on
  * non-zero exit so callers can inspect stderr for a useful message).
  */
-function runCommand(cmd, args, { timeoutMs = 20000, input = null } = {}) {
+// Each Kafka CLI call spawns a JVM and connects to the broker; over a slow
+// VPN/network that alone can take 15-20s, so the default limit is generous.
+const CLI_TIMEOUT_MS = 45000;
+
+function runCommand(cmd, args, { timeoutMs = CLI_TIMEOUT_MS, input = null } = {}) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { shell: false });
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timedOut = false;
 
     const timer = setTimeout(() => {
       if (!settled) {
+        timedOut = true;
         child.kill('SIGTERM');
       }
     }, timeoutMs);
@@ -81,7 +87,12 @@ function runCommand(cmd, args, { timeoutMs = 20000, input = null } = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ code, stdout, stderr });
+      // A killed process prints nothing, so without this the caller only sees
+      // an empty error and falls back to a generic "Failed to ..." message.
+      if (timedOut && !stderr.trim()) {
+        stderr = `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for Kafka - the broker or VPN may be slow or unreachable. Try again.`;
+      }
+      resolve({ code, stdout, stderr, timedOut });
     });
 
     if (input !== null) {
@@ -166,7 +177,7 @@ app.get('/api/topics', async (req, res) => {
   const { code, stdout, stderr } = await runCommand(
     kafkaBin(cfg, 'kafka-topics.sh'),
     ['--bootstrap-server', env.bootstrapServers, '--list'],
-    { timeoutMs: 15000 }
+    {}
   );
 
   if (code !== 0) {
@@ -209,7 +220,7 @@ app.post('/api/topics', async (req, res) => {
       '--partitions', String(partitionCount),
       '--replication-factor', String(replication)
     ],
-    { timeoutMs: 20000 }
+    {}
   );
 
   if (code !== 0) {
@@ -234,7 +245,7 @@ app.delete('/api/topics/:topic', async (req, res) => {
   const { code, stderr } = await runCommand(
     kafkaBin(cfg, 'kafka-topics.sh'),
     ['--bootstrap-server', env.bootstrapServers, '--delete', '--topic', topic],
-    { timeoutMs: 20000 }
+    {}
   );
 
   if (code !== 0) {
@@ -277,7 +288,7 @@ app.post('/api/topics/:topic/purge', async (req, res) => {
     const { code, stdout, stderr } = await runCommand(
       kafkaBin(cfg, 'kafka-delete-records.sh'),
       ['--bootstrap-server', env.bootstrapServers, '--offset-json-file', offsetFile],
-      { timeoutMs: 20000 }
+      {}
     );
 
     if (code !== 0) {
@@ -309,7 +320,7 @@ async function getOffsetsAtTime(cfg, env, topic, time) {
       '--topic', topic,
       '--time', String(time)
     ],
-    { timeoutMs: 15000 }
+    {}
   );
 
   if (code !== 0) {
@@ -379,7 +390,7 @@ async function fetchMessagesForPartition(cfg, env, topic, partition, startOffset
       '--property', 'print.key=true',
       '--property', `key.separator=${KEY_SEP}`
     ],
-    { timeoutMs: 8000 }
+    {}
   );
 
   const lines = stdout.split('\n').filter(Boolean);
@@ -494,7 +505,7 @@ async function getTopicPartitionsInfo(cfg, env, topic) {
   const { code, stdout, stderr } = await runCommand(
     kafkaBin(cfg, 'kafka-topics.sh'),
     ['--bootstrap-server', env.bootstrapServers, '--describe', '--topic', topic],
-    { timeoutMs: 15000 }
+    {}
   );
   if (code !== 0) throw new Error(stderr || 'Failed to describe topic');
 
@@ -568,7 +579,7 @@ async function getTopicConfig(cfg, env, topic) {
   const { code, stdout } = await runCommand(
     kafkaBin(cfg, 'kafka-configs.sh'),
     ['--bootstrap-server', env.bootstrapServers, '--describe', '--entity-type', 'topics', '--entity-name', topic],
-    { timeoutMs: 15000 }
+    {}
   );
   if (code !== 0) return {};
 
@@ -872,7 +883,7 @@ app.post('/api/publish', async (req, res) => {
   const { code, stderr } = await runCommand(
     kafkaBin(cfg, 'kafka-console-producer.sh'),
     args,
-    { timeoutMs: 15000, input }
+    { input }
   );
 
   if (code !== 0) {
