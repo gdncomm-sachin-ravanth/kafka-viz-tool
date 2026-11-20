@@ -54,15 +54,21 @@ function kafkaBin(cfg, scriptName) {
  * Run a CLI command, collect stdout/stderr, resolve on exit (never rejects on
  * non-zero exit so callers can inspect stderr for a useful message).
  */
-function runCommand(cmd, args, { timeoutMs = 20000, input = null } = {}) {
+// Each Kafka CLI call spawns a JVM and connects to the broker; over a slow
+// VPN/network that alone can take 15-20s, so the default limit is generous.
+const CLI_TIMEOUT_MS = 45000;
+
+function runCommand(cmd, args, { timeoutMs = CLI_TIMEOUT_MS, input = null } = {}) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { shell: false });
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timedOut = false;
 
     const timer = setTimeout(() => {
       if (!settled) {
+        timedOut = true;
         child.kill('SIGTERM');
       }
     }, timeoutMs);
@@ -81,7 +87,12 @@ function runCommand(cmd, args, { timeoutMs = 20000, input = null } = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ code, stdout, stderr });
+      // A killed process prints nothing, so without this the caller only sees
+      // an empty error and falls back to a generic "Failed to ..." message.
+      if (timedOut && !stderr.trim()) {
+        stderr = `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for Kafka - the broker or VPN may be slow or unreachable. Try again.`;
+      }
+      resolve({ code, stdout, stderr, timedOut });
     });
 
     if (input !== null) {
@@ -224,7 +235,7 @@ app.post('/api/topics', async (req, res) => {
       '--partitions', String(partitionCount),
       '--replication-factor', String(replication)
     ],
-    { timeoutMs: 20000 }
+    {}
   );
 
   if (code !== 0) {
@@ -249,7 +260,7 @@ app.delete('/api/topics/:topic', async (req, res) => {
   const { code, stderr } = await runCommand(
     kafkaBin(cfg, 'kafka-topics.sh'),
     ['--bootstrap-server', env.bootstrapServers, '--delete', '--topic', topic],
-    { timeoutMs: 20000 }
+    {}
   );
 
   if (code !== 0) {
@@ -292,7 +303,7 @@ app.post('/api/topics/:topic/purge', async (req, res) => {
     const { code, stdout, stderr } = await runCommand(
       kafkaBin(cfg, 'kafka-delete-records.sh'),
       ['--bootstrap-server', env.bootstrapServers, '--offset-json-file', offsetFile],
-      { timeoutMs: 20000 }
+      {}
     );
 
     if (code !== 0) {
@@ -324,7 +335,7 @@ async function getOffsetsAtTime(cfg, env, topic, time) {
       '--topic', topic,
       '--time', String(time)
     ],
-    { timeoutMs: 15000 }
+    {}
   );
 
   if (code !== 0) {
@@ -394,7 +405,7 @@ async function fetchMessagesForPartition(cfg, env, topic, partition, startOffset
       '--property', 'print.key=true',
       '--property', `key.separator=${KEY_SEP}`
     ],
-    { timeoutMs: 8000 }
+    {}
   );
 
   const lines = stdout.split('\n').filter(Boolean);
@@ -509,7 +520,7 @@ async function getTopicPartitionsInfo(cfg, env, topic) {
   const { code, stdout, stderr } = await runCommand(
     kafkaBin(cfg, 'kafka-topics.sh'),
     ['--bootstrap-server', env.bootstrapServers, '--describe', '--topic', topic],
-    { timeoutMs: 15000 }
+    {}
   );
   if (code !== 0) throw new Error(stderr || 'Failed to describe topic');
 
@@ -583,7 +594,7 @@ async function getTopicConfig(cfg, env, topic) {
   const { code, stdout } = await runCommand(
     kafkaBin(cfg, 'kafka-configs.sh'),
     ['--bootstrap-server', env.bootstrapServers, '--describe', '--entity-type', 'topics', '--entity-name', topic],
-    { timeoutMs: 15000 }
+    {}
   );
   if (code !== 0) return {};
 
@@ -623,15 +634,11 @@ app.get('/api/topics/:topic/details', async (req, res) => {
   if (!env) return res.status(400).json({ error: `Unknown environment: ${envName}` });
 
   try {
-    const [topicInfo, latestOffsets, earliestOffsets, groupsResult, config] = await Promise.all([
+    const [topicInfo, latestOffsets, earliestOffsets, groupsInfo, config] = await Promise.all([
       getTopicPartitionsInfo(cfg, env, topic),
       getOffsetsAtTime(cfg, env, topic, -1),
       getOffsetsAtTime(cfg, env, topic, -2),
-      runCommand(
-        kafkaBin(cfg, 'kafka-consumer-groups.sh'),
-        ['--bootstrap-server', env.bootstrapServers, '--describe', '--all-groups'],
-        { timeoutMs: 45000 }
-      ),
+      getConsumerGroupsForDetails(cfg, env, topic),
       getTopicConfig(cfg, env, topic)
     ]);
 
@@ -650,19 +657,160 @@ app.get('/api/topics/:topic/details', async (req, res) => {
     });
 
     const totalMessages = partitions.reduce((sum, p) => sum + (p.messageCount || 0), 0);
-    const consumerGroups = parseConsumerGroupsForTopic(groupsResult.stdout || '', topic);
-
     res.json({
       partitionCount: topicInfo.partitionCount,
       replicationFactor: topicInfo.replicationFactor,
       partitions,
       totalMessages,
-      consumerGroups,
+      consumerGroups: groupsInfo.consumerGroups,
+      consumerGroupsNote: groupsInfo.note,
       config
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ---------- consumer groups / live lag ----------
+
+// Describing every group on a big cluster (the QA2 broker has 2,000+) takes
+// minutes and the CLI's default 5s admin timeout makes it fail outright, so
+// "describe everything" is only attempted on small clusters; bigger ones are
+// pointed at the Live lag section, which describes just the groups you pick.
+const MAX_GROUPS_FOR_FULL_DESCRIBE = 40;
+const MAX_LAG_GROUPS = 10;
+const GROUP_LIST_TTL_MS = 60000;
+const GROUP_SCAN_CHUNK = 25;
+const GROUP_SCAN_CONCURRENCY = 6;
+const groupListCache = new Map(); // env bootstrap servers -> { at, groups }
+const groupScans = new Map();     // "env|topic" -> scan progress/result
+
+async function listConsumerGroups(cfg, env) {
+  const hit = groupListCache.get(env.bootstrapServers);
+  if (hit && Date.now() - hit.at < GROUP_LIST_TTL_MS) return hit.groups;
+  const { code, stdout, stderr } = await runCommand(
+    kafkaBin(cfg, 'kafka-consumer-groups.sh'),
+    ['--bootstrap-server', env.bootstrapServers, '--list'],
+    { timeoutMs: 30000 }
+  );
+  if (code !== 0) throw new Error(`Failed to list consumer groups: ${(stderr || '').trim().split('\n')[0]}`);
+  const groups = stdout.split('\n').map((l) => l.trim()).filter(Boolean).sort();
+  groupListCache.set(env.bootstrapServers, { at: Date.now(), groups });
+  return groups;
+}
+
+async function describeGroups(cfg, env, groupIds, timeoutMs = 45000) {
+  const args = ['--bootstrap-server', env.bootstrapServers, '--describe', '--timeout', String(timeoutMs)];
+  groupIds.forEach((g) => args.push('--group', g));
+  return runCommand(kafkaBin(cfg, 'kafka-consumer-groups.sh'), args, { timeoutMs: timeoutMs + 15000 });
+}
+
+async function getConsumerGroupsForDetails(cfg, env, topic) {
+  let groupIds;
+  try {
+    groupIds = await listConsumerGroups(cfg, env);
+  } catch (err) {
+    return { consumerGroups: [], note: err.message };
+  }
+  if (groupIds.length > MAX_GROUPS_FOR_FULL_DESCRIBE) {
+    return {
+      consumerGroups: [],
+      note: `This cluster has ${groupIds.length} consumer groups - too many to scan on every open. Add the groups you care about under Live lag below.`
+    };
+  }
+  const result = await describeGroups(cfg, env, groupIds);
+  if (result.code !== 0 && !result.stdout.trim()) {
+    return { consumerGroups: [], note: `Couldn't describe consumer groups: ${(result.stderr || '').trim().split('\n')[0]}` };
+  }
+  return { consumerGroups: parseConsumerGroupsForTopic(result.stdout, topic), note: null };
+}
+
+app.get('/api/consumer-groups', async (req, res) => {
+  const cfg = loadConfig();
+  if (!checkKafkaHome(cfg, res)) return;
+  const env = getEnv(cfg, req.query.env);
+  if (!env) return res.status(400).json({ error: `Unknown environment: ${req.query.env}` });
+  try {
+    res.json({ groups: await listConsumerGroups(cfg, env) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lightweight "live" lag: describes only the requested groups (2-3s for a
+// couple of groups) and returns just this topic's rows, so the client can
+// poll it every few seconds.
+app.get('/api/topics/:topic/lag', async (req, res) => {
+  const cfg = loadConfig();
+  if (!checkKafkaHome(cfg, res)) return;
+  const env = getEnv(cfg, req.query.env);
+  if (!env) return res.status(400).json({ error: `Unknown environment: ${req.query.env}` });
+
+  const topic = req.params.topic;
+  const groupIds = String(req.query.groups || '').split(',').map((g) => g.trim()).filter(Boolean);
+  if (!groupIds.length) return res.status(400).json({ error: 'groups is required' });
+  if (groupIds.length > MAX_LAG_GROUPS) {
+    return res.status(400).json({ error: `At most ${MAX_LAG_GROUPS} groups can be monitored at once` });
+  }
+
+  try {
+    const result = await describeGroups(cfg, env, groupIds, 30000);
+    if (result.code !== 0 && !result.stdout.trim()) {
+      throw new Error((result.stderr || 'kafka-consumer-groups failed').trim().split('\n')[0]);
+    }
+    const found = new Map(parseConsumerGroupsForTopic(result.stdout, topic).map((g) => [g.groupId, g]));
+    const groups = groupIds.map((groupId) => found.get(groupId) || { groupId, consumerIds: [], totalLag: 0, partitions: [], noOffsets: true });
+    res.json({ ts: Date.now(), groups });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Finding which groups consume a topic means describing every group on the
+// cluster (no per-topic lookup exists in the CLI) - minutes on a big cluster -
+// so it runs as a background job the client polls for progress.
+app.post('/api/topics/:topic/scan-groups', async (req, res) => {
+  const cfg = loadConfig();
+  if (!checkKafkaHome(cfg, res)) return;
+  const env = getEnv(cfg, req.query.env);
+  if (!env) return res.status(400).json({ error: `Unknown environment: ${req.query.env}` });
+
+  const topic = req.params.topic;
+  const key = `${env.bootstrapServers}|${topic}`;
+  const existing = groupScans.get(key);
+  if (existing && existing.status === 'running') return res.json(existing);
+
+  let allGroups;
+  try {
+    allGroups = await listConsumerGroups(cfg, env);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+  const chunks = [];
+  for (let i = 0; i < allGroups.length; i += GROUP_SCAN_CHUNK) chunks.push(allGroups.slice(i, i + GROUP_SCAN_CHUNK));
+  const scan = { status: 'running', totalChunks: chunks.length, doneChunks: 0, failedChunks: 0, found: [], startedAt: Date.now() };
+  groupScans.set(key, scan);
+
+  mapWithConcurrency(chunks, GROUP_SCAN_CONCURRENCY, async (chunk) => {
+    try {
+      const r = await describeGroups(cfg, env, chunk, 60000);
+      if (r.code !== 0 && !r.stdout.trim()) throw new Error('describe failed');
+      parseConsumerGroupsForTopic(r.stdout, topic).forEach((g) => scan.found.push(g.groupId));
+    } catch {
+      scan.failedChunks += 1;
+    }
+    scan.doneChunks += 1;
+  }).then(() => { scan.status = 'done'; });
+
+  res.json(scan);
+});
+
+app.get('/api/topics/:topic/scan-groups', (req, res) => {
+  const env = getEnv(loadConfig(), req.query.env);
+  if (!env) return res.status(400).json({ error: `Unknown environment: ${req.query.env}` });
+  const scan = groupScans.get(`${env.bootstrapServers}|${req.params.topic}`);
+  res.json(scan || { status: 'idle' });
 });
 
 // ---------- message-count histogram ----------
@@ -887,7 +1035,7 @@ app.post('/api/publish', async (req, res) => {
   const { code, stderr } = await runCommand(
     kafkaBin(cfg, 'kafka-console-producer.sh'),
     args,
-    { timeoutMs: 15000, input }
+    { input }
   );
 
   if (code !== 0) {
