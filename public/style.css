@@ -972,3 +972,29 @@ body.resizing-pane {
 }
 
 .toast.err { border-color: var(--danger); color: var(--danger); }
+
+/* ---------- live lag ---------- */
+.lag-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.lag-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 2px 4px 2px 10px; font-size: 12px; background: var(--bg);
+}
+.lag-chip-swatch { width: 10px; height: 10px; border-radius: 50%; }
+.lag-chip button {
+  border: 0; background: transparent; color: var(--text-dim);
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 2px 6px;
+}
+.lag-chip button:hover { color: var(--text); }
+.lag-status { font-size: 12px; margin-bottom: 8px; }
+.lag-live-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: #2da44e; margin-left: 6px; animation: lag-pulse 1.6s ease-in-out infinite;
+}
+.lag-live-dot[hidden] { display: none; }
+@keyframes lag-pulse { 50% { opacity: 0.25; } }
+.lag-nonzero { color: #d1242f; font-weight: 600; }
+#lag-chart-wrap { margin-bottom: 8px; }
+.lag-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-dim); margin: 6px 0; }
+.lag-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lag-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }

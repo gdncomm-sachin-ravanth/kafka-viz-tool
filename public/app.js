@@ -132,6 +132,7 @@ async function api(path, options) {
 // ---------- tabs ----------
 
 function switchToPage(pageName) {
+  if (pageName !== 'topics') pauseLiveLag();
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === pageName));
   document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
   el(`page-${pageName}`).classList.add('active');
@@ -849,6 +850,7 @@ el('delete-topic-btn').addEventListener('click', async () => {
 // volume chart, rather than opening a modal on top - there's a lot to show
 // (a wide chart included) and it deserves the full center column.
 function closeTopicDetailsView() {
+  stopLiveLag();
   state.detailsViewOpen = false;
   el('topic-details-view').hidden = true;
   el('messages-view').hidden = false;
@@ -877,6 +879,7 @@ el('view-details-btn').addEventListener('click', async () => {
       `/api/topics/${encodeURIComponent(topic)}/details?env=${encodeURIComponent(state.currentEnv)}`
     );
     renderTopicDetails(data);
+    initLiveLag(topic, data);
   } catch (err) {
     el('topic-details-content').innerHTML = `<p class="empty-hint">${escapeHtml(err.message)}</p>`;
     toast(err.message, true);
@@ -913,7 +916,7 @@ function renderTopicDetails(data) {
 
   html += '<div class="details-section-title">Consumer groups</div>';
   if (!data.consumerGroups.length) {
-    html += '<p class="muted">No consumer groups have committed offsets on this topic.</p>';
+    html += `<p class="muted">${escapeHtml(data.consumerGroupsNote || 'No consumer groups have committed offsets on this topic.')}</p>`;
   } else {
     data.consumerGroups.forEach((g) => {
       html += `<div class="group-block">
@@ -943,6 +946,324 @@ function renderTopicDetails(data) {
 function statCard(value, label) {
   return `<div class="details-stat"><div class="stat-value">${value ?? '-'}</div><div class="stat-label">${label}</div></div>`;
 }
+
+// ---------- live consumer-group lag (topic details view) ----------
+
+// Polls /api/topics/:topic/lag for a hand-picked set of consumer groups and
+// plots each group's total lag over time. Groups are picked (or found via a
+// background scan) rather than auto-discovered because a cluster can have
+// thousands, and describing them all takes minutes. Samples live only in
+// memory for the open details view; the chosen groups are remembered per
+// environment + topic in localStorage.
+const LAG_MAX_GROUPS = 10;
+const LAG_MAX_SAMPLES = 120;
+const LAG_COLORS = ['#0f9d8a', '#d97706', '#6366f1', '#db2777', '#2563eb', '#65a30d', '#9333ea', '#dc2626', '#0891b2', '#a16207'];
+
+const lag = {
+  topic: null,
+  groups: [],
+  samples: {},   // groupId -> [{ t, lag }]
+  latest: null,  // last /lag response
+  running: false,
+  inflight: false,
+  timer: null,
+  session: 0,    // bumped on stop so late responses from a previous topic/view are dropped
+  scanTimer: null,
+  error: null
+};
+
+const lagStorageKey = () => `kvt-lag-groups:${state.currentEnv}:${lag.topic}`;
+
+function loadSavedLagGroups() {
+  try {
+    const v = JSON.parse(localStorage.getItem(lagStorageKey()) || '[]');
+    return Array.isArray(v) ? v.filter((g) => typeof g === 'string').slice(0, LAG_MAX_GROUPS) : [];
+  } catch { return []; }
+}
+
+function saveLagGroups() {
+  try { localStorage.setItem(lagStorageKey(), JSON.stringify(lag.groups)); } catch { /* storage unavailable */ }
+}
+
+const lagColor = (groupId) => LAG_COLORS[lag.groups.indexOf(groupId) % LAG_COLORS.length];
+
+function stopLiveLag() {
+  lag.session += 1;
+  lag.running = false;
+  lag.inflight = false;
+  clearTimeout(lag.timer);
+  clearTimeout(lag.scanTimer);
+  lag.timer = null;
+  lag.scanTimer = null;
+  el('lag-live-dot').hidden = true;
+}
+
+function pauseLiveLag() {
+  if (!lag.running) return;
+  lag.running = false;
+  clearTimeout(lag.timer);
+  lag.timer = null;
+  el('lag-toggle-btn').textContent = 'Resume';
+  el('lag-live-dot').hidden = true;
+}
+
+function initLiveLag(topic, detailsData) {
+  stopLiveLag();
+  lag.topic = topic;
+  lag.samples = {};
+  lag.latest = null;
+  lag.error = null;
+  lag.groups = loadSavedLagGroups();
+  if (!lag.groups.length) {
+    lag.groups = (detailsData.consumerGroups || []).map((g) => g.groupId).slice(0, LAG_MAX_GROUPS);
+  }
+  el('lag-group-input').value = '';
+  el('lag-scan-btn').disabled = false;
+  el('lag-scan-btn').textContent = 'Find groups for this topic';
+  el('lag-toggle-btn').textContent = 'Pause';
+
+  // Best effort - only feeds the autocomplete list.
+  const session = lag.session;
+  api(`/api/consumer-groups?env=${encodeURIComponent(state.currentEnv)}`).then((d) => {
+    if (session !== lag.session) return;
+    el('lag-group-options').innerHTML = d.groups.map((g) => `<option value="${escapeHtml(g)}"></option>`).join('');
+  }).catch(() => {});
+
+  renderLagChips();
+  renderLagViews();
+  if (lag.groups.length) startLiveLag();
+}
+
+function startLiveLag() {
+  if (!lag.groups.length) return;
+  lag.running = true;
+  el('lag-toggle-btn').textContent = 'Pause';
+  el('lag-live-dot').hidden = false;
+  clearTimeout(lag.timer);
+  pollLag();
+}
+
+async function pollLag() {
+  if (!lag.running || lag.inflight || !lag.groups.length) return;
+  const session = lag.session;
+  const topic = lag.topic;
+  lag.inflight = true;
+  el('lag-status').textContent = lag.latest ? el('lag-status').textContent : 'Fetching lag…';
+  try {
+    const data = await api(
+      `/api/topics/${encodeURIComponent(topic)}/lag?env=${encodeURIComponent(state.currentEnv)}&groups=${encodeURIComponent(lag.groups.join(','))}`
+    );
+    if (session !== lag.session) return;
+    lag.error = null;
+    lag.latest = data;
+    data.groups.forEach((g) => {
+      const list = lag.samples[g.groupId] || (lag.samples[g.groupId] = []);
+      list.push({ t: data.ts, lag: g.totalLag });
+      if (list.length > LAG_MAX_SAMPLES) list.shift();
+    });
+  } catch (err) {
+    if (session !== lag.session) return;
+    lag.error = err.message;
+  } finally {
+    if (session === lag.session) {
+      lag.inflight = false;
+      renderLagViews();
+      // The next poll is scheduled only after this one finishes, so a slow
+      // broker can't pile up overlapping requests.
+      if (lag.running) lag.timer = setTimeout(pollLag, Number(el('lag-interval').value));
+    }
+  }
+}
+
+function renderLagChips() {
+  el('lag-chips').innerHTML = lag.groups.map((g) => `
+    <span class="lag-chip"><span class="lag-chip-swatch" style="background:${lagColor(g)}"></span>${escapeHtml(g)}
+      <button type="button" data-group="${escapeHtml(g)}" title="Stop monitoring this group">&times;</button></span>
+  `).join('');
+}
+
+function renderLagViews() {
+  const status = el('lag-status');
+  if (!lag.groups.length) {
+    status.textContent = 'Add the consumer group(s) you want to watch, or use "Find groups for this topic".';
+    el('lag-table-wrap').innerHTML = '';
+    el('lag-chart-wrap').innerHTML = '';
+    return;
+  }
+  if (lag.error) {
+    status.textContent = `Last refresh failed: ${lag.error}`;
+  } else if (lag.latest) {
+    const time = new Date(lag.latest.ts).toLocaleTimeString();
+    status.textContent = `Last updated ${time}${lag.running ? ` · refreshing every ${Number(el('lag-interval').value) / 1000}s` : ' · paused'}`;
+  }
+  renderLagTable();
+  renderLagChart();
+}
+
+function renderLagTable() {
+  const wrap = el('lag-table-wrap');
+  if (!lag.latest) { wrap.innerHTML = ''; return; }
+  let html = '<table class="details-table"><thead><tr><th>Group</th><th>Total lag</th><th>Consumers</th><th>Lag per partition</th></tr></thead><tbody>';
+  lag.latest.groups.forEach((g) => {
+    const perPartition = g.noOffsets
+      ? '<span class="muted">no committed offsets for this topic</span>'
+      : g.partitions.map((p) => `<span class="${p.lag > 0 ? 'lag-nonzero' : ''}">p${p.partition}: ${p.lag ?? '-'}</span>`).join(' · ');
+    html += `<tr>
+      <td><span class="lag-chip-swatch" style="display:inline-block;background:${lagColor(g.groupId)}"></span> ${escapeHtml(g.groupId)}</td>
+      <td class="${g.totalLag > 0 ? 'lag-nonzero' : ''}">${g.totalLag}</td>
+      <td>${g.consumerIds.length}</td>
+      <td>${perPartition}</td>
+    </tr>`;
+  });
+  wrap.innerHTML = html + '</tbody></table>';
+}
+
+function formatClock(ms) {
+  const d = new Date(ms);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
+}
+
+function renderLagChart() {
+  const wrap = el('lag-chart-wrap');
+  const series = lag.groups
+    .map((g) => ({ groupId: g, points: lag.samples[g] || [] }))
+    .filter((s) => s.points.length);
+  if (!series.length) { wrap.innerHTML = ''; return; }
+
+  const width = 1100;
+  const height = 280;
+  const marginLeft = 64;
+  const marginRight = 24;
+  const marginTop = 16;
+  const marginBottom = 48;
+  const plotWidth = width - marginLeft - marginRight;
+  const plotHeight = height - marginTop - marginBottom;
+
+  const allPoints = series.flatMap((s) => s.points);
+  const tMin = Math.min(...allPoints.map((p) => p.t));
+  const tMax = Math.max(...allPoints.map((p) => p.t));
+  const tSpan = Math.max(tMax - tMin, 1);
+  const rawMax = Math.max(...allPoints.map((p) => p.lag), 1);
+  const yStep = niceStep(rawMax / 4);
+  const yMax = Math.ceil(rawMax / yStep) * yStep;
+
+  // A single sample has no span to spread over - centre it.
+  const x = (t) => marginLeft + (tMax === tMin ? plotWidth / 2 : ((t - tMin) / tSpan) * plotWidth);
+  const y = (v) => marginTop + plotHeight - (v / yMax) * plotHeight;
+
+  let grid = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = (yMax / 4) * i;
+    grid += `<line class="histogram-gridline" x1="${marginLeft}" y1="${y(v).toFixed(1)}" x2="${width - marginRight}" y2="${y(v).toFixed(1)}" />
+      <text class="histogram-axis-label" x="${marginLeft - 10}" y="${y(v).toFixed(1)}" text-anchor="end" dominant-baseline="middle">${Math.round(v)}</text>`;
+  }
+  let xTicks = '';
+  const tickCount = tMax === tMin ? 1 : 6;
+  for (let i = 0; i < tickCount; i++) {
+    const t = tMax === tMin ? tMin : tMin + (tSpan * i) / (tickCount - 1);
+    xTicks += `<text class="histogram-axis-label" x="${x(t).toFixed(1)}" y="${height - marginBottom + 20}" text-anchor="middle">${formatClock(t)}</text>`;
+  }
+
+  const lines = series.map((s) => {
+    const color = lagColor(s.groupId);
+    const path = s.points.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.lag).toFixed(1)}`).join(' ');
+    const dots = s.points.map((p) =>
+      `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.lag).toFixed(1)}" r="3" fill="${color}"><title>${escapeHtml(s.groupId)} @ ${formatClock(p.t)}: lag ${p.lag}</title></circle>`
+    ).join('');
+    return `<path d="${path}" fill="none" stroke="${color}" stroke-width="2" />${dots}`;
+  }).join('');
+
+  const legend = series.map((s) => `<span><i style="background:${lagColor(s.groupId)}"></i>${escapeHtml(s.groupId)}</span>`).join('');
+
+  wrap.innerHTML = `
+    <div class="lag-legend">${legend}</div>
+    <svg class="histogram-svg" style="height:280px" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+      <line class="histogram-axis-line" x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${marginTop + plotHeight}" />
+      <line class="histogram-axis-line" x1="${marginLeft}" y1="${marginTop + plotHeight}" x2="${width - marginRight}" y2="${marginTop + plotHeight}" />
+      ${grid}${xTicks}${lines}
+      <text class="histogram-axis-title" x="${marginLeft + plotWidth / 2}" y="${height - 6}" text-anchor="middle">Time (since this view was opened)</text>
+      <text class="histogram-axis-title" transform="translate(16, ${marginTop + plotHeight / 2}) rotate(-90)" text-anchor="middle">Total lag (messages)</text>
+    </svg>`;
+}
+
+function addLagGroup(groupId) {
+  const id = groupId.trim();
+  if (!id) return;
+  if (lag.groups.includes(id)) return toast('Already monitoring that group', true);
+  if (lag.groups.length >= LAG_MAX_GROUPS) return toast(`At most ${LAG_MAX_GROUPS} groups can be monitored at once`, true);
+  lag.groups.push(id);
+  saveLagGroups();
+  renderLagChips();
+  startLiveLag();
+}
+
+el('lag-add-btn').addEventListener('click', () => {
+  addLagGroup(el('lag-group-input').value);
+  el('lag-group-input').value = '';
+});
+el('lag-group-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') el('lag-add-btn').click();
+});
+
+el('lag-chips').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-group]');
+  if (!btn) return;
+  const id = btn.dataset.group;
+  lag.groups = lag.groups.filter((g) => g !== id);
+  delete lag.samples[id];
+  if (lag.latest) lag.latest.groups = lag.latest.groups.filter((g) => g.groupId !== id);
+  saveLagGroups();
+  renderLagChips();
+  renderLagViews();
+  if (!lag.groups.length) pauseLiveLag();
+});
+
+el('lag-toggle-btn').addEventListener('click', () => {
+  if (lag.running) {
+    pauseLiveLag();
+    renderLagViews();
+  } else {
+    startLiveLag();
+  }
+});
+
+el('lag-interval').addEventListener('change', () => {
+  if (!lag.running) return;
+  clearTimeout(lag.timer);
+  if (!lag.inflight) lag.timer = setTimeout(pollLag, Number(el('lag-interval').value));
+  renderLagViews();
+});
+
+el('lag-scan-btn').addEventListener('click', async () => {
+  const session = lag.session;
+  const topic = lag.topic;
+  const base = `/api/topics/${encodeURIComponent(topic)}/scan-groups?env=${encodeURIComponent(state.currentEnv)}`;
+  el('lag-scan-btn').disabled = true;
+  try {
+    let scan = await api(base, { method: 'POST' });
+    while (session === lag.session) {
+      if (scan.status === 'done') {
+        el('lag-scan-btn').disabled = false;
+        el('lag-scan-btn').textContent = 'Find groups for this topic';
+        const fresh = scan.found.filter((g) => !lag.groups.includes(g)).slice(0, LAG_MAX_GROUPS - lag.groups.length);
+        fresh.forEach((g) => lag.groups.push(g));
+        if (fresh.length) { saveLagGroups(); renderLagChips(); startLiveLag(); }
+        const partial = scan.failedChunks ? ` (${scan.failedChunks} batch(es) failed - results may be incomplete)` : '';
+        toast(scan.found.length ? `Found ${scan.found.length} group(s) consuming this topic${partial}` : `No consumer group found for this topic${partial}`, !scan.found.length);
+        return;
+      }
+      el('lag-scan-btn').textContent = `Scanning… ${scan.doneChunks}/${scan.totalChunks} (${scan.found.length} found)`;
+      await new Promise((resolve) => { lag.scanTimer = setTimeout(resolve, 3000); });
+      if (session !== lag.session) return;
+      scan = await api(base);
+    }
+  } catch (err) {
+    if (session !== lag.session) return;
+    el('lag-scan-btn').disabled = false;
+    el('lag-scan-btn').textContent = 'Find groups for this topic';
+    toast(err.message, true);
+  }
+});
 
 // ---------- message volume histogram (topic details view) ----------
 

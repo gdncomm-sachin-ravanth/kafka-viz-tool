@@ -140,6 +140,26 @@
         <div id="topic-details-view" hidden>
           <div id="topic-details-content"></div>
 
+          <div class="details-section-title">Live lag <span id="lag-live-dot" class="lag-live-dot" hidden></span></div>
+          <div class="histogram-controls">
+            <input id="lag-group-input" type="text" list="lag-group-options" placeholder="Consumer group…" autocomplete="off" />
+            <datalist id="lag-group-options"></datalist>
+            <button id="lag-add-btn" class="btn">Add group</button>
+            <button id="lag-scan-btn" class="btn" title="Describes every group on the cluster to find the ones consuming this topic - can take several minutes on big clusters">Find groups for this topic</button>
+            <label class="field-label" for="lag-interval">Refresh</label>
+            <select id="lag-interval">
+              <option value="5000">5 s</option>
+              <option value="10000" selected>10 s</option>
+              <option value="30000">30 s</option>
+              <option value="60000">1 min</option>
+            </select>
+            <button id="lag-toggle-btn" class="btn">Pause</button>
+          </div>
+          <div id="lag-chips" class="lag-chips"></div>
+          <div id="lag-status" class="muted lag-status"></div>
+          <div id="lag-table-wrap"></div>
+          <div id="lag-chart-wrap"></div>
+
           <div class="details-section-title">Message volume</div>
           <div class="histogram-controls">
             <label class="field-label" for="histogram-from">From</label>
