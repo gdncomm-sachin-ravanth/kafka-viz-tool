@@ -1,0 +1,30 @@
+public/index.html
+  s_7ed27761403ca9::t_8aa7678c7d9450 64-65,72
+CODEBASE_OVERVIEW.md
+  s_7ed27761403ca9::t_1f0874c59d1c59 35,81
+server.js
+  s_7ed27761403ca9::t_7e955ef34dcae3 169-174,183-196,198-203,206-208
+public/app.js
+  s_7ed27761403ca9::t_8aa7678c7d9450 5,196-197,241-262,264-267,269-273,277-279,281-282,286-288,290-291,294-299,315-333,419-424,902-903,1702
+public/style.css
+  s_7ed27761403ca9::t_8aa7678c7d9450 975,1001-1002
+  s_7ed27761403ca9::t_1f0874c59d1c59 1003-1004
+README.md
+  s_7ed27761403ca9::t_1f0874c59d1c59 167-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "e419161a0e70e5a00ae07bc5cca4a8814715479f",
+  "prompts": {},
+  "sessions": {
+    "s_7ed27761403ca9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "99c1fef9-ac2a-4553-83d0-079656a25944",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "gdncomm-sachin-ravanth <sachin.ravanth@gdn-commerce.com>"
+    }
+  }
+}
