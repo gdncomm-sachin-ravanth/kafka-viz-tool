@@ -164,10 +164,14 @@ system's setting to start, and remembers your choice after that.
 
 This is where you browse what's already in Kafka.
 
-- **The list on the left** shows every topic on the selected connection.
-  Type in the box above it to filter the list down (matches as you type).
-  The circular arrow button reloads the list, and the drag handle on the
-  right edge lets you resize the panel if names are getting cut off.
+- **The list on the left** starts empty - a cluster can have thousands of
+  topics (QA2 has over 13,000), so nothing is fetched until you ask. Type
+  part of a topic's name (or press Enter) to search; only the matches come
+  back. Or click **Fetch all topics** to load the whole list - after that,
+  typing just filters it as you type. The circular arrow button re-runs the
+  search (or reloads the full list), and the drag handle on the right edge
+  lets you resize the panel if names are getting cut off. Switching
+  connection clears the list again.
 - **Click a topic** to load its most recent messages (the last 50, newest
   first, combined from every partition). The text under the topic name
   tells you how far back in time that batch of messages goes.

@@ -998,3 +998,7 @@ body.resizing-pane {
 .lag-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-dim); margin: 6px 0; }
 .lag-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .lag-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+.fetch-all-row { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.fetch-all-row .btn { width: 100%; }
+.topic-list .topic-list-hint { padding: 14px 16px; color: var(--text-dim); font-size: 13px; cursor: default; white-space: normal; text-overflow: clip; font-family: inherit; }
+.topic-list .topic-list-hint:hover { background: transparent; }
